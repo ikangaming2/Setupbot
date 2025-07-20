@@ -1,21 +1,19 @@
 #!/bin/bash
-set -e
+set -Eeuo pipefail
+trap 'echo "❌ Terjadi kesalahan di baris $LINENO."' ERR
 
 [[ $EUID -ne 0 ]] && { echo "❌ Jalankan sebagai root!"; exit 1; }
 
 echo "🔧 === Nauval's Linux VM Installer & Manager ==="
 
-# 🔍 Cek virtualisasi
 grep -qE 'vmx|svm' /proc/cpuinfo || { echo "❌ VPS tidak support virtualisasi"; exit 1; }
 
-# 📦 Install dependencies
 apt update -y
 apt install -y qemu-kvm libvirt-daemon-system libvirt-clients virtinst \
 bridge-utils cloud-image-utils openssl curl wget net-tools genisoimage
 
 mkdir -p /var/log/kvm-setup /var/lib/libvirt/images
 
-# 🌐 List ISO (update Juli 2025)
 declare -A os_urls=(
   ["Ubuntu-22.04"]="https://releases.ubuntu.com/jammy/ubuntu-22.04.5-live-server-amd64.iso"
   ["Ubuntu-24.04"]="https://releases.ubuntu.com/noble/ubuntu-24.04.2-live-server-amd64.iso"
@@ -34,10 +32,8 @@ declare -A os_urls=(
   ["Manjaro-2025.06"]="https://download.manjaro.org/gnome/22.1.3/manjaro-gnome-22.1.3-230529-linux61.iso"
 )
 
-# 🚀 Install VM
 install_vm() {
-  echo ""
-  echo "📌 Pilih OS:"
+  echo -e "\n📌 Pilih OS:"
   options=()
   i=1
   for os in "${!os_urls[@]}"; do
@@ -67,7 +63,7 @@ install_vm() {
   seed_iso="/var/lib/libvirt/images/${vm_name}-seed.iso"
   log_path="/var/log/kvm-setup/${vm_name}.log"
 
-  wget -q --show-progress -O "$iso_path" "${os_urls[$distro]}"
+  [[ -f "$iso_path" ]] || wget -q --show-progress -O "$iso_path" "${os_urls[$distro]}"
   qemu-img create -f qcow2 "$disk_path" 20G
 
   user_data="/tmp/user-data-${vm_name}"
@@ -87,7 +83,7 @@ EOF
 
   cloud-localds "$seed_iso" "$user_data"
 
-  virt-install \
+  if ! virt-install \
     --name "$vm_name" \
     --ram "$vm_ram" \
     --vcpus "$vm_cpu" \
@@ -99,7 +95,11 @@ EOF
     --network network=default \
     --graphics none \
     --console pty,target_type=serial \
-    --noautoconsole &> "$log_path"
+    --noautoconsole \
+    --wait=-1 &> "$log_path"; then
+    echo "❌ Gagal membuat VM. Lihat log: $log_path"
+    return
+  fi
 
   sleep 5
   mac=$(virsh domiflist "$vm_name" | awk '/vnet/ {print $5}')
@@ -114,7 +114,6 @@ EOF
   fi
 
   host_ip=$(curl -s https://ipinfo.io/ip || hostname -I | awk '{print $1}')
-
   info="/var/log/kvm-setup/${vm_name}.info"
   echo -e "VM: $vm_name\nIP: $ip\nPORT: $vm_port\nUSER: $vm_user\nPASS: $vm_pass" > "$info"
 
@@ -179,6 +178,7 @@ delete_vm() {
 }
 
 while true; do
+  clear
   echo -e "\n🔘 MENU NAUVAL SETUPBOT:"
   echo "1) Install VM"
   echo "2) Kontrol VM"
