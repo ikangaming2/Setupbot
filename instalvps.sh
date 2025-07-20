@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🔧 === Adtha's Linux VM Installer & Manager ==="
+echo "🔧 === Nauval's Linux VM Installer & Manager ==="
 
 # 🔍 Cek virtualisasi
 grep -qE 'vmx|svm' /proc/cpuinfo || { echo "❌ VPS tidak support virtualisasi"; exit 1; }
@@ -9,7 +9,7 @@ grep -qE 'vmx|svm' /proc/cpuinfo || { echo "❌ VPS tidak support virtualisasi";
 # 📦 Install dependencies
 apt update -y
 apt install -y qemu-kvm libvirt-daemon-system libvirt-clients virtinst \
-bridge-utils cloud-image-utils openssl curl wget
+bridge-utils cloud-image-utils openssl curl wget net-tools
 
 mkdir -p /var/log/kvm-setup
 
@@ -29,7 +29,7 @@ declare -A os_urls=(
   ["AlmaLinux-9.3"]="https://repo.almalinux.org/almalinux/9.3/isos/x86_64/AlmaLinux-9.3-x86_64-minimal.iso"
 )
 
-# ⚙️ Install VM
+# 🚀 Install VM
 function install_vm() {
   echo "📌 Pilih OS:"
   options=("${!os_urls[@]}")
@@ -51,7 +51,6 @@ function install_vm() {
   wget -q --show-progress -O "$iso_path" "${os_urls[$distro]}"
   qemu-img create -f qcow2 "$disk_path" 20G
 
-  # 🧬 Cloud-init config
   user_data="/tmp/user-data-${vm_name}"
   cat > "$user_data" <<EOF
 #cloud-config
@@ -62,7 +61,8 @@ users:
     passwd: $(echo "$vm_pass" | openssl passwd -6 -stdin)
 packages: [ curl, wget, git, htop, nmap, metasploit-framework ]
 runcmd:
-  - sed -i "s/#Port 22/Port $vm_port/" /etc/ssh/sshd_config
+  - sed -i "s/^#Port .*/Port $vm_port/" /etc/ssh/sshd_config
+  - echo "Port $vm_port" >> /etc/ssh/sshd_config
   - systemctl restart ssh
 EOF
 
@@ -84,18 +84,28 @@ EOF
 
   sleep 5
   mac=$(virsh domiflist "$vm_name" | awk '/vnet/ {print $5}')
-  ip=$(arp -an | grep "$mac" | awk '{print $2}' | tr -d '()')
-  [[ -z "$ip" ]] && ip="Belum terdeteksi"
+  ip=$(ip neigh | grep "$mac" | awk '{print $1}')
+  [[ -z "$ip" ]] && ip=$(virsh domifaddr "$vm_name" | grep -oP '(\d+\.){3}\d+')
 
-  iptables -t nat -A PREROUTING -p tcp --dport $vm_port -j DNAT --to "$ip:$vm_port"
-  iptables -A FORWARD -p tcp -d "$ip" --dport "$vm_port" -j ACCEPT
+  # Validasi sebelum forwarding
+  if [[ "$ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    iptables -t nat -A PREROUTING -p tcp --dport $vm_port -j DNAT --to "$ip:$vm_port"
+    iptables -A FORWARD -p tcp -d "$ip" --dport "$vm_port" -j ACCEPT
+  else
+    echo "⚠️ IP tidak valid. Port forwarding dilewati."
+  fi
 
-  echo "✅ VM '$vm_name' selesai dibuat!"
-  echo "🌐 IP NAT        : $ip"
-  echo "📡 Port SSH      : $vm_port"
+  host_ip=$(curl -s https://ipinfo.io/ip || hostname -I | awk '{print $1}')
+
+  echo ""
+  echo "✅ VM '$vm_name' berhasil dibuat!"
+  echo "🌐 IP NAT VM     : $ip"
+  echo "📡 SSH Port      : $vm_port"
   echo "👤 Username      : $vm_user"
   echo "🔐 Password      : $vm_pass"
-  echo "📁 Log Setup     : /var/log/kvm-setup/${vm_name}.log"
+  echo "🌍 Login dari luar VPS:"
+  echo "    ssh $vm_user@$host_ip -p $vm_port"
+  echo "📁 Log: /var/log/kvm-setup/${vm_name}.log"
 }
 
 # 🛠️ Menu Kontrol
@@ -109,15 +119,21 @@ function control_vm() {
     4) read -p "VM: " vm; virsh reboot "$vm" ;;
     5) read -p "VM: " vm
        mac=$(virsh domiflist "$vm" | awk '/vnet/ {print $5}')
-       ip=$(arp -an | grep "$mac" | awk '{print $2}' | tr -d '()')
+       ip=$(ip neigh | grep "$mac" | awk '{print $1}')
+       [[ -z "$ip" ]] && ip=$(virsh domifaddr "$vm" | grep -oP '(\d+\.){3}\d+')
        echo "🌐 IP NAT VM '$vm': $ip"
        ;;
     6) read -p "Host Port: " hp; read -p "VM Port: " vp; read -p "VM: " vm
        mac=$(virsh domiflist "$vm" | awk '/vnet/ {print $5}')
-       ip=$(arp -an | grep "$mac" | awk '{print $2}' | tr -d '()')
-       iptables -t nat -A PREROUTING -p tcp --dport "$hp" -j DNAT --to "$ip:$vp"
-       iptables -A FORWARD -p tcp -d "$ip" --dport "$vp" -j ACCEPT
-       echo "✅ Port $hp ➜ $ip:$vp"
+       ip=$(ip neigh | grep "$mac" | awk '{print $1}')
+       [[ -z "$ip" ]] && ip=$(virsh domifaddr "$vm" | grep -oP '(\d+\.){3}\d+')
+       if [[ "$ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+         iptables -t nat -A PREROUTING -p tcp --dport "$hp" -j DNAT --to "$ip:$vp"
+         iptables -A FORWARD -p tcp -d "$ip" --dport "$vp" -j ACCEPT
+         echo "✅ Port $hp ➜ $ip:$vp (VM '$vm')"
+       else
+         echo "⚠️ IP VM belum valid, forwarding gagal."
+       fi
        ;;
     *) ;;
   esac
@@ -135,7 +151,7 @@ function delete_vm() {
 # 🎛️ Menu Utama
 while true; do
   echo ""
-  echo "🔘 MENU UTAMA:"
+  echo "🔘 MENU NAUVAL SETUPBOT:"
   echo "1) Install VM"
   echo "2) Kontrol VM"
   echo "3) Hapus VM"
@@ -145,7 +161,7 @@ while true; do
     1) install_vm ;;
     2) control_vm ;;
     3) delete_vm ;;
-    4) echo "👋 Keluar..."; exit ;;
+    4) echo "👋 Terima kasih telah menggunakan Nauval's Setupbot!"; exit ;;
     *) echo "❌ Pilihan tidak valid." ;;
   esac
 done
