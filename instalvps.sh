@@ -1,10 +1,10 @@
 #!/bin/bash
 set -e
 
-echo "🔧 nauval Linux VM Installer & Controller"
+echo "🔧 === Adtha's Linux VM Installer & Manager ==="
 
-# ✅ Cek nested virtualization
-grep -qE 'vmx|svm' /proc/cpuinfo || { echo "❌ Virtualization not supported"; exit 1; }
+# 🔍 Cek virtualisasi
+grep -qE 'vmx|svm' /proc/cpuinfo || { echo "❌ VPS tidak support virtualisasi"; exit 1; }
 
 # 📦 Install dependencies
 apt update -y
@@ -13,39 +13,45 @@ bridge-utils cloud-image-utils openssl curl wget
 
 mkdir -p /var/log/kvm-setup
 
-# 📥 ISO source (updated July 2025)
+# 🌐 List ISO (update Juli 2025)
 declare -A os_urls=(
   ["Ubuntu-22.04"]="https://releases.ubuntu.com/jammy/ubuntu-22.04.5-live-server-amd64.iso"
   ["Ubuntu-24.04"]="https://releases.ubuntu.com/noble/ubuntu-24.04.2-live-server-amd64.iso"
   ["Debian-11"]="https://get.debian.org/images/archive/11.3.0/amd64/iso-cd/debian-11.3.0-amd64-netinst.iso"
   ["Debian-12"]="https://get.debian.org/images/release/12.11.0/amd64/iso-cd/debian-12.11.0-amd64-netinst.iso"
+  ["Debian-13"]="https://cdimage.debian.org/cdimage/unofficial/snapshots/amd64/iso-cd/debian-13-trixie-DI-alpha3-amd64-netinst.iso"
   ["Kali-Rolling"]="https://cdimage.kali.org/kali-rolling/kali-linux-2025.2-installer-amd64.iso"
   ["Kali-2024.1"]="https://old.kali.org/kali-images/kali-2024.1/kali-linux-2024.1-installer-amd64.iso"
+  ["Arch-2025.07"]="https://archlinux.org/iso/2025.07.01/archlinux-2025.07.01-x86_64.iso"
+  ["Fedora-42"]="https://download.fedoraproject.org/pub/fedora/linux/releases/42/Workstation/x86_64/iso/Fedora-Workstation-Live-x86_64-42-1.14.iso"
+  ["openSUSE-Leap-15.6"]="https://download.opensuse.org/distribution/leap/15.6/iso/openSUSE-Leap-15.6-DVD-x86_64.iso"
   ["Rocky-9.3"]="https://dl.rockylinux.org/pub/rocky/9.3/isos/x86_64/Rocky-9.3-x86_64-minimal.iso"
   ["AlmaLinux-9.3"]="https://repo.almalinux.org/almalinux/9.3/isos/x86_64/AlmaLinux-9.3-x86_64-minimal.iso"
 )
 
-# 🚀 Install VM
+# ⚙️ Install VM
 function install_vm() {
-  echo "🖥️ === Instalasi VM Baru ==="
-  echo "Pilih OS:"
+  echo "📌 Pilih OS:"
   options=("${!os_urls[@]}")
   select distro in "${options[@]}"; do [[ -n "$distro" ]] && break; done
 
   read -p "🆔 Nama VM: " vm_name
-  read -p "👤 Username VM: " vm_user
-  read -p "🔑 Password: " vm_pass
+  read -p "👤 Username: " vm_user
+  read -p "🔐 Password: " vm_pass
   read -p "💾 RAM (MB): " vm_ram
   read -p "🧠 vCPU: " vm_cpu
+
+  vm_port=$(shuf -i 20000-30000 -n 1)
+  echo "📡 Port SSH acak untuk VM: $vm_port"
 
   iso_path="/var/lib/libvirt/images/${vm_name}.iso"
   disk_path="/var/lib/libvirt/images/${vm_name}.qcow2"
   seed_iso="/var/lib/libvirt/images/${vm_name}-seed.iso"
 
-  echo "📥 Download ISO: ${os_urls[$distro]}"
   wget -q --show-progress -O "$iso_path" "${os_urls[$distro]}"
   qemu-img create -f qcow2 "$disk_path" 20G
 
+  # 🧬 Cloud-init config
   user_data="/tmp/user-data-${vm_name}"
   cat > "$user_data" <<EOF
 #cloud-config
@@ -56,7 +62,8 @@ users:
     passwd: $(echo "$vm_pass" | openssl passwd -6 -stdin)
 packages: [ curl, wget, git, htop, nmap, metasploit-framework ]
 runcmd:
-  - echo "VM siap oleh Adtha Installer"
+  - sed -i "s/#Port 22/Port $vm_port/" /etc/ssh/sshd_config
+  - systemctl restart ssh
 EOF
 
   cloud-localds "$seed_iso" "$user_data"
@@ -75,70 +82,70 @@ EOF
     --console pty,target_type=serial \
     --noautoconsole
 
-  echo "✅ VM '$vm_name' berhasil dibuat!"
-  echo "🔑 Login VM: user '$vm_user' dengan password yang kamu isi"
-  echo "$(date '+%F %T') - VM $vm_name ($distro) dibuat" >> /var/log/kvm-setup/${vm_name}.log
+  sleep 5
+  mac=$(virsh domiflist "$vm_name" | awk '/vnet/ {print $5}')
+  ip=$(arp -an | grep "$mac" | awk '{print $2}' | tr -d '()')
+  [[ -z "$ip" ]] && ip="Belum terdeteksi"
+
+  iptables -t nat -A PREROUTING -p tcp --dport $vm_port -j DNAT --to "$ip:$vm_port"
+  iptables -A FORWARD -p tcp -d "$ip" --dport "$vm_port" -j ACCEPT
+
+  echo "✅ VM '$vm_name' selesai dibuat!"
+  echo "🌐 IP NAT        : $ip"
+  echo "📡 Port SSH      : $vm_port"
+  echo "👤 Username      : $vm_user"
+  echo "🔐 Password      : $vm_pass"
+  echo "📁 Log Setup     : /var/log/kvm-setup/${vm_name}.log"
 }
 
-# 🛠️ Kontrol VM
+# 🛠️ Menu Kontrol
 function control_vm() {
-  echo "🧭 Kontrol VM:"
-  echo "1) List VM"
-  echo "2) Start VM"
-  echo "3) Stop VM"
-  echo "4) Restart VM"
-  echo "5) Tampilkan IP NAT"
-  echo "6) Port Forwarding"
-  echo "7) Kembali"
+  echo "1) List VM"; echo "2) Start"; echo "3) Stop"; echo "4) Restart"; echo "5) IP NAT"; echo "6) Port Forward"; echo "7) Kembali"
   read -p "Pilih [1-7]: " ctl
   case $ctl in
     1) virsh list --all ;;
-    2) read -p "Nama VM: " vm; virsh start "$vm" ;;
-    3) read -p "Nama VM: " vm; virsh shutdown "$vm" ;;
-    4) read -p "Nama VM: " vm; virsh reboot "$vm" ;;
-    5)
-      read -p "Nama VM: " vm
-      mac=$(virsh domiflist "$vm" | awk '/vnet/ {print $5}')
-      ip=$(arp -an | grep "$mac" | awk '{print $2}' | tr -d '()')
-      echo "🌐 IP NAT VM '$vm': $ip"
-      ;;
-    6)
-      read -p "Port Host (ex: 2222): " host_port
-      read -p "Port VM (ex: 22): " vm_port
-      read -p "Nama VM: " vm
-      mac=$(virsh domiflist "$vm" | awk '/vnet/ {print $5}')
-      ip=$(arp -an | grep "$mac" | awk '{print $2}' | tr -d '()')
-      iptables -t nat -A PREROUTING -p tcp --dport "$host_port" -j DNAT --to "$ip:$vm_port"
-      iptables -A FORWARD -p tcp -d "$ip" --dport "$vm_port" -j ACCEPT
-      echo "✅ Port $host_port ➜ $ip:$vm_port (VM '$vm')"
-      ;;
+    2) read -p "VM: " vm; virsh start "$vm" ;;
+    3) read -p "VM: " vm; virsh shutdown "$vm" ;;
+    4) read -p "VM: " vm; virsh reboot "$vm" ;;
+    5) read -p "VM: " vm
+       mac=$(virsh domiflist "$vm" | awk '/vnet/ {print $5}')
+       ip=$(arp -an | grep "$mac" | awk '{print $2}' | tr -d '()')
+       echo "🌐 IP NAT VM '$vm': $ip"
+       ;;
+    6) read -p "Host Port: " hp; read -p "VM Port: " vp; read -p "VM: " vm
+       mac=$(virsh domiflist "$vm" | awk '/vnet/ {print $5}')
+       ip=$(arp -an | grep "$mac" | awk '{print $2}' | tr -d '()')
+       iptables -t nat -A PREROUTING -p tcp --dport "$hp" -j DNAT --to "$ip:$vp"
+       iptables -A FORWARD -p tcp -d "$ip" --dport "$vp" -j ACCEPT
+       echo "✅ Port $hp ➜ $ip:$vp"
+       ;;
     *) ;;
   esac
 }
 
 # 🧹 Hapus VM
 function delete_vm() {
-  read -p "Nama VM yang akan dihapus: " vm
-  virsh destroy "$vm"
+  read -p "Nama VM: " vm
+  virsh destroy "$vm" || true
   virsh undefine "$vm" --remove-all-storage
   rm -f /var/lib/libvirt/images/${vm}*
-  echo "🧹 VM '$vm' dihapus total"
+  echo "🧹 VM '$vm' dihapus"
 }
 
 # 🎛️ Menu Utama
 while true; do
   echo ""
   echo "🔘 MENU UTAMA:"
-  echo "1) Install VM Baru"
+  echo "1) Install VM"
   echo "2) Kontrol VM"
   echo "3) Hapus VM"
   echo "4) Keluar"
-  read -p "Pilih opsi [1-4]: " menu
+  read -p "Pilih [1-4]: " menu
   case $menu in
     1) install_vm ;;
     2) control_vm ;;
     3) delete_vm ;;
-    4) echo "👋 Bye!"; exit ;;
+    4) echo "👋 Keluar..."; exit ;;
     *) echo "❌ Pilihan tidak valid." ;;
   esac
 done
