@@ -1,12 +1,14 @@
 #!/bin/bash
 
-TITLE="VPS DOCKER MAKER by NAUVAL"
-LINE=$(printf '─%.0s' {1..60})
+TITLE=" VPS DOCKER MAKER by NAUVAL "
+LINE=$(printf '═%.0s' {1..70})
 
-clear
-echo "$LINE"
-printf "%*s\n" $(((${#TITLE}+$COLUMNS)/2)) "$TITLE"
-echo "$LINE"
+header() {
+    clear
+    echo "$LINE"
+    printf "║%*s%*s║\n" $(((${#LINE}-${#TITLE})/2)) "$TITLE" $(((${#LINE}-${#TITLE}+1)/2)) ""
+    echo "$LINE"
+}
 
 list_os() {
     echo "Pilih OS image:"
@@ -18,6 +20,7 @@ list_os() {
 }
 
 list_vps() {
+    echo "Daftar VPS Container:"
     docker ps -a --format "table {{.ID}}\t{{.Names}}\t{{.Status}}\t{{.Image}}"
 }
 
@@ -43,41 +46,88 @@ build_vps() {
     read -p "Mode user [1=Root / 2=User biasa]: " MODE
     read -s -p "Password: " PASS
     echo
+    read -p "Limit CPU (contoh 1.5 untuk 1.5 core, kosong=tanpa limit): " CPU
+    read -p "Limit RAM (contoh 512m, 1g, kosong=tanpa limit): " RAM
+    read -p "Limit Disk (contoh 1g, kosong=tanpa limit): " DISK
 
-    CID=$(docker run -dit --name "$NAME" -p $PORT:22 --hostname "$NAME" $IMAGE /bin/sh)
-    echo "$CID"
+    LIMIT_ARGS=""
+    [[ -n "$CPU" ]] && LIMIT_ARGS="$LIMIT_ARGS --cpus=$CPU"
+    [[ -n "$RAM" ]] && LIMIT_ARGS="$LIMIT_ARGS --memory=$RAM"
+    [[ -n "$DISK" ]] && LIMIT_ARGS="$LIMIT_ARGS --storage-opt size=$DISK"
+
+    CID=$(docker run -dit --name "$NAME" -p $PORT:22 --hostname "$NAME" $LIMIT_ARGS $IMAGE /bin/sh)
+    echo "Container ID: $CID"
 
     if [[ "$IMAGE" == alpine* ]]; then
-        docker exec -it $NAME sh -c "
-            apk update && apk add git openssh sudo bash nano vim curl wget neofetch"
+        docker exec -it $NAME sh -c "apk update && apk add git openssh sudo bash nano vim curl wget neofetch"
     elif [[ "$IMAGE" == *archlinux* ]]; then
-        docker exec -it $NAME bash -c "
-            pacman -Sy --noconfirm git openssh sudo nano vim curl wget net-tools iproute2 neofetch"
+        docker exec -it $NAME bash -c "pacman -Sy --noconfirm git openssh sudo nano vim curl wget net-tools iproute2 neofetch"
+    elif [[ "$IMAGE" == *centos* || "$IMAGE" == *rockylinux* ]]; then
+        docker exec -it $NAME bash -c "yum install -y git openssh-server sudo nano vim curl wget net-tools iproute iputils neofetch"
     else
-        docker exec -it $NAME bash -c "
-            apt-get update && apt-get install -y git openssh-server sudo nano vim curl wget net-tools iproute2 || true && \
-            mkdir -p /var/run/sshd && \
-            (apt-get install -y neofetch || true)
-        "
+        docker exec -it $NAME bash -c "apt-get update && apt-get install -y git openssh-server sudo nano vim curl wget net-tools iproute2 || true && \
+        mkdir -p /var/run/sshd && (apt-get install -y neofetch || true)"
     fi
 
-    # fallback neofetch via git
-    docker exec -it $NAME bash -c "
-        if ! command -v neofetch >/dev/null 2>&1; then
-            git clone https://github.com/dylanaraps/neofetch.git /opt/neofetch && \
-            ln -s /opt/neofetch/neofetch /usr/local/bin/neofetch
-        fi
-    "
+    docker exec -it $NAME bash -c "if ! command -v neofetch >/dev/null 2>&1; then \
+        git clone https://github.com/dylanaraps/neofetch.git /opt/neofetch && ln -s /opt/neofetch/neofetch /usr/local/bin/neofetch; fi"
 
     if [[ "$MODE" == "1" ]]; then
         docker exec -it $NAME bash -c "echo 'root:$PASS' | chpasswd && echo 'PermitRootLogin yes' >> /etc/ssh/sshd_config && echo 'PasswordAuthentication yes' >> /etc/ssh/sshd_config"
+        USER="root"
     else
         docker exec -it $NAME bash -c "useradd -m -s /bin/bash user && echo 'user:$PASS' | chpasswd && adduser user sudo && echo 'PasswordAuthentication yes' >> /etc/ssh/sshd_config"
+        USER="user"
     fi
 
-    docker exec -it $NAME bash -c "neofetch || true"
     docker exec -d $NAME /usr/sbin/sshd -D
-    echo "VPS $NAME siap diakses via SSH port $PORT"
+
+    echo
+    echo "$LINE"
+    echo "   VPS Berhasil Dibuat!"
+    echo "$LINE"
+    echo "Nama VPS   : $NAME"
+    echo "OS Image   : $IMAGE"
+    echo "User Login : $USER"
+    echo "Password   : $PASS"
+    echo "SSH Port   : $PORT"
+    echo "Limit CPU  : ${CPU:-Tidak dibatasi}"
+    echo "Limit RAM  : ${RAM:-Tidak dibatasi}"
+    echo "Limit Disk : ${DISK:-Tidak dibatasi}"
+    echo "Login Cmd  : ssh $USER@$(curl -s ifconfig.me) -p $PORT"
+    echo "$LINE"
+    docker exec -it $NAME bash -c "neofetch || true"
+}
+
+vps_info() {
+    read -p "Masukkan nama VPS: " NAME
+    echo "$LINE"
+    echo "Info VPS: $NAME"
+    echo "$LINE"
+    docker inspect --format='ID: {{.Id}}
+Nama: {{.Name}}
+Image: {{.Config.Image}}
+Status: {{.State.Status}}
+IP: {{.NetworkSettings.IPAddress}}
+CPU Limit: {{.HostConfig.NanoCpus}}
+RAM Limit: {{.HostConfig.Memory}}
+Disk Limit: {{.HostConfig.StorageOpt.size}}' $NAME
+    echo "$LINE"
+}
+
+edit_limit() {
+    read -p "Masukkan nama VPS: " NAME
+    read -p "Limit CPU baru (kosong=skip): " CPU
+    read -p "Limit RAM baru (kosong=skip): " RAM
+    read -p "Limit Disk baru (kosong=skip): " DISK
+
+    CMD="docker update"
+    [[ -n "$CPU" ]] && CMD="$CMD --cpus=$CPU"
+    [[ -n "$RAM" ]] && CMD="$CMD --memory=$RAM"
+    [[ -n "$DISK" ]] && CMD="$CMD --storage-opt size=$DISK"
+    CMD="$CMD $NAME"
+    eval $CMD
+    echo "Limit VPS $NAME diperbarui!"
 }
 
 control_vps() {
@@ -86,18 +136,22 @@ control_vps() {
     echo "1) Start"
     echo "2) Stop"
     echo "3) Restart"
-    echo "4) Hapus"
+    echo "4) Info VPS"
+    echo "5) Edit Limit"
+    echo "6) Hapus"
     read -p "Pilihan: " act
     case $act in
         1) docker start $NAME ;;
         2) docker stop $NAME ;;
         3) docker restart $NAME ;;
-        4) docker rm -f $NAME ;;
+        4) vps_info ;;
+        5) edit_limit ;;
+        6) docker rm -f $NAME ;;
     esac
 }
 
 while true; do
-    echo "$LINE"
+    header
     echo "1) List OS"
     echo "2) List VPS"
     echo "3) Build VPS"
@@ -112,4 +166,5 @@ while true; do
         4) control_vps ;;
         5) exit ;;
     esac
+    read -p "Tekan Enter untuk kembali ke menu..."
 done
