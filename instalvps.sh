@@ -26,9 +26,9 @@ OS_LIST=(
 
 function header() {
   clear
-  echo -e "${MAGENTA}╔════════════════════════════════════════════╗${NC}"
-  echo -e "${MAGENTA}         🚀  VPS DOCKER MAKER MENU by Nauval 🚀        ${NC}"
-  echo -e "${MAGENTA}╚════════════════════════════════════════════╝${NC}"
+  echo -e "${MAGENTA}╔════════════════════════════════════════════${NC}"
+  echo -e "${MAGENTA}         🚀  VPS DOCKER MAKER MENU  by nauval🚀        ${NC}"
+  echo -e "${MAGENTA}╚════════════════════════════════════════════${NC}"
 }
 
 function autopull_os() {
@@ -82,12 +82,16 @@ function build_vps() {
   fi
   PM=$(detect_pm $CONTAINER_NAME)
   case $PM in
-    apt) docker exec -it $CONTAINER_NAME bash -c "apt-get update && apt-get install -y openssh-server sudo && mkdir -p /var/run/sshd";;
-    yum) docker exec -it $CONTAINER_NAME bash -c "yum install -y openssh-server sudo && mkdir -p /var/run/sshd";;
-    dnf) docker exec -it $CONTAINER_NAME bash -c "dnf install -y openssh-server sudo && mkdir -p /var/run/sshd";;
-    pacman) docker exec -it $CONTAINER_NAME bash -c "pacman -Sy --noconfirm openssh sudo && mkdir -p /var/run/sshd";;
-    apk) docker exec -it $CONTAINER_NAME sh -c "apk add --no-cache openssh sudo && mkdir -p /var/run/sshd";;
+    apt) docker exec -it $CONTAINER_NAME bash -c "apt-get update && apt-get install -y openssh-server sudo nano vim curl wget git net-tools iproute2 neofetch || true && mkdir -p /var/run/sshd";;
+    yum) docker exec -it $CONTAINER_NAME bash -c "yum install -y openssh-server sudo nano vim curl wget git net-tools iproute iproute2 neofetch || true && mkdir -p /var/run/sshd";;
+    dnf) docker exec -it $CONTAINER_NAME bash -c "dnf install -y openssh-server sudo nano vim curl wget git net-tools iproute iproute2 neofetch || true && mkdir -p /var/run/sshd";;
+    pacman) docker exec -it $CONTAINER_NAME bash -c "pacman -Sy --noconfirm openssh sudo nano vim curl wget git net-tools iproute2 neofetch || true && mkdir -p /var/run/sshd";;
+    apk) docker exec -it $CONTAINER_NAME sh -c "apk add --no-cache openssh sudo nano vim curl wget git iproute2 neofetch || true && mkdir -p /var/run/sshd";;
   esac
+  # fallback neofetch via GitHub
+  docker exec -it $CONTAINER_NAME bash -c "if ! command -v neofetch >/dev/null 2>&1; then git clone https://github.com/dylanaraps/neofetch.git /opt/neofetch && ln -s /opt/neofetch/neofetch /usr/local/bin/neofetch; fi"
+  # aktifkan neofetch tiap login root
+  docker exec -it $CONTAINER_NAME bash -c 'echo "neofetch" >> /root/.bashrc'
   if [ "$MODE_USER" == "2" ]; then
     docker exec -it $CONTAINER_NAME bash -c "useradd -m -s /bin/bash $USER_NAME || adduser -D $USER_NAME && echo '$USER_NAME:$USER_PASS' | chpasswd && (usermod -aG sudo $USER_NAME || true)"
   else
@@ -95,7 +99,6 @@ function build_vps() {
   fi
   docker exec -it $CONTAINER_NAME bash -c "echo 'PermitRootLogin yes' >> /etc/ssh/sshd_config 2>/dev/null || true && echo 'PasswordAuthentication yes' >> /etc/ssh/sshd_config 2>/dev/null || true"
   docker exec -d $CONTAINER_NAME bash -c "service ssh start || /usr/sbin/sshd || /usr/sbin/sshd -D &"
-  
   echo -e "\n${CYAN}══════════════════════════════════════════════${NC}"
   echo -e "🎉 ${GREEN}VPS $CONTAINER_NAME berhasil dibuat!${NC}"
   echo -e "🌐 IP Publik   : ${YELLOW}$PUBIP${NC}"
@@ -107,7 +110,7 @@ function build_vps() {
 }
 
 function control_vps() {
-  echo -e "${CYAN}Daftar VPS Container:${NC}"
+  echo -e "${CYAN}📋 Daftar VPS Container:${NC}"
   docker ps -a --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
   echo
   read -p "Pilih nama container: " CONTAINER_NAME
@@ -125,7 +128,7 @@ function control_vps() {
       2) docker stop $CONTAINER_NAME; echo -e "${RED}Stopped!${NC}";;
       3) docker restart $CONTAINER_NAME; echo -e "${CYAN}Restarted!${NC}";;
       4) docker exec -it $CONTAINER_NAME bash;;
-      5) echo -e "${BLUE}Info $CONTAINER_NAME:${NC}"; docker inspect --format 'Name: {{.Name}} | Image: {{.Config.Image}} | State: {{.State.Status}} | IP: {{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}} | Ports: {{.NetworkSettings.Ports}}' $CONTAINER_NAME;;
+      5) echo -e "${BLUE}ℹ️ Info $CONTAINER_NAME:${NC}"; docker inspect --format 'Name: {{.Name}} | Image: {{.Config.Image}} | State: {{.State.Status}} | IP: {{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}} | Ports: {{.NetworkSettings.Ports}}' $CONTAINER_NAME;;
       6) break;;
     esac
   done
