@@ -46,16 +46,8 @@ build_vps() {
     read -p "Mode user [1=Root / 2=User biasa]: " MODE
     read -s -p "Password: " PASS
     echo
-    read -p "Limit CPU (contoh 1.5 untuk 1.5 core, kosong=tanpa limit): " CPU
-    read -p "Limit RAM (contoh 512m, 1g, kosong=tanpa limit): " RAM
-    read -p "Limit Disk (contoh 1g, kosong=tanpa limit): " DISK
 
-    LIMIT_ARGS=""
-    [[ -n "$CPU" ]] && LIMIT_ARGS="$LIMIT_ARGS --cpus=$CPU"
-    [[ -n "$RAM" ]] && LIMIT_ARGS="$LIMIT_ARGS --memory=$RAM"
-    [[ -n "$DISK" ]] && LIMIT_ARGS="$LIMIT_ARGS --storage-opt size=$DISK"
-
-    CID=$(docker run -dit --name "$NAME" -p $PORT:22 --hostname "$NAME" $LIMIT_ARGS $IMAGE /bin/sh)
+    CID=$(docker run -dit --name "$NAME" -p $PORT:22 --hostname "$NAME" $IMAGE /bin/sh)
     echo "Container ID: $CID"
 
     if [[ "$IMAGE" == alpine* ]]; then
@@ -91,43 +83,10 @@ build_vps() {
     echo "User Login : $USER"
     echo "Password   : $PASS"
     echo "SSH Port   : $PORT"
-    echo "Limit CPU  : ${CPU:-Tidak dibatasi}"
-    echo "Limit RAM  : ${RAM:-Tidak dibatasi}"
-    echo "Limit Disk : ${DISK:-Tidak dibatasi}"
     echo "Login Cmd  : ssh $USER@$(curl -s ifconfig.me) -p $PORT"
     echo "$LINE"
+    echo
     docker exec -it $NAME bash -c "neofetch || true"
-}
-
-vps_info() {
-    read -p "Masukkan nama VPS: " NAME
-    echo "$LINE"
-    echo "Info VPS: $NAME"
-    echo "$LINE"
-    docker inspect --format='ID: {{.Id}}
-Nama: {{.Name}}
-Image: {{.Config.Image}}
-Status: {{.State.Status}}
-IP: {{.NetworkSettings.IPAddress}}
-CPU Limit: {{.HostConfig.NanoCpus}}
-RAM Limit: {{.HostConfig.Memory}}
-Disk Limit: {{.HostConfig.StorageOpt.size}}' $NAME
-    echo "$LINE"
-}
-
-edit_limit() {
-    read -p "Masukkan nama VPS: " NAME
-    read -p "Limit CPU baru (kosong=skip): " CPU
-    read -p "Limit RAM baru (kosong=skip): " RAM
-    read -p "Limit Disk baru (kosong=skip): " DISK
-
-    CMD="docker update"
-    [[ -n "$CPU" ]] && CMD="$CMD --cpus=$CPU"
-    [[ -n "$RAM" ]] && CMD="$CMD --memory=$RAM"
-    [[ -n "$DISK" ]] && CMD="$CMD --storage-opt size=$DISK"
-    CMD="$CMD $NAME"
-    eval $CMD
-    echo "Limit VPS $NAME diperbarui!"
 }
 
 control_vps() {
@@ -136,17 +95,13 @@ control_vps() {
     echo "1) Start"
     echo "2) Stop"
     echo "3) Restart"
-    echo "4) Info VPS"
-    echo "5) Edit Limit"
-    echo "6) Hapus"
+    echo "4) Hapus"
     read -p "Pilihan: " act
     case $act in
         1) docker start $NAME ;;
         2) docker stop $NAME ;;
         3) docker restart $NAME ;;
-        4) vps_info ;;
-        5) edit_limit ;;
-        6) docker rm -f $NAME ;;
+        4) docker rm -f $NAME ;;
     esac
 }
 
