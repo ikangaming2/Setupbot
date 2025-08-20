@@ -6,21 +6,21 @@ META_DIR="/var/lib/vpsmaker"
 
 mkdir -p $META_DIR
 
-# Install docker & jq jika belum ada
+# Cek & install docker + jq jika belum ada
 if ! command -v docker &>/dev/null; then
-    echo "⚙️ Installing Docker..."
-    apt-get update -y && apt-get install -y docker.io || yum install -y docker
-    systemctl enable docker && systemctl start docker
+    echo "🔧 Installing Docker..."
+    curl -fsSL https://get.docker.com | sh
+    systemctl enable --now docker
 fi
 if ! command -v jq &>/dev/null; then
-    echo "⚙️ Installing jq..."
-    apt-get install -y jq || yum install -y jq
+    echo "🔧 Installing jq..."
+    apt-get update -y && apt-get install -y jq || yum install -y jq
 fi
 
 header() {
     clear
     echo "$LINE"
-    printf "   %s\n" "$TITLE"
+    printf "%*s\n" $(((${#LINE}+${#TITLE})/2)) "$TITLE"
     echo "$LINE"
 }
 
@@ -78,11 +78,10 @@ build_vps() {
     read -s -p "Password: " PASS
     echo
 
-    CID=$(docker run -dit --privileged --name "$NAME" \
+    CID=$(docker run -dit --name "$NAME" \
       -p $PORT:22 \
       --hostname "$NAME" \
-      $IMAGE /sbin/init)
-    echo "Container ID: $CID"
+      $IMAGE /bin/sh)
 
     if [[ "$IMAGE" == alpine* ]]; then
         docker exec -it $NAME sh -c "apk update && apk add git openssh sudo bash nano vim curl wget neofetch"
@@ -97,7 +96,7 @@ build_vps() {
     fi
 
     if [[ "$MODE" == "1" ]]; then
-        docker exec -it $NAME bash -c "echo 'root:$PASS' | chpasswd && sed -i 's/#PasswordAuthentication no/PasswordAuthentication yes/' /etc/ssh/sshd_config"
+        docker exec -it $NAME bash -c "echo 'root:$PASS' | chpasswd && echo 'PermitRootLogin yes' >> /etc/ssh/sshd_config"
         USER="root"
     else
         docker exec -it $NAME bash -c "useradd -m -s /bin/bash user && echo 'user:$PASS' | chpasswd && adduser user sudo"
@@ -106,7 +105,7 @@ build_vps() {
 
     docker exec -d $NAME /usr/sbin/sshd -D
 
-    # Blokir Pterodactyl installer
+    # Blokir Pterodactyl installer & Docker
     docker exec -it $NAME bash -c "echo '127.0.0.1 pterodactyl-installer.se' >> /etc/hosts"
     docker exec -it $NAME bash -c "echo '::1 pterodactyl-installer.se' >> /etc/hosts"
     docker exec -it $NAME bash -c "if [ -f /usr/bin/curl ]; then mv /usr/bin/curl /usr/bin/curl.real; fi"
@@ -119,10 +118,9 @@ fi
 exec /usr/bin/curl.real \"\$@\"
 EOF
 chmod +x /usr/bin/curl"
-
-    # Dummy docker di dalam VPS
     docker exec -it $NAME bash -c "echo 'echo 🚫 Docker tidak boleh digunakan di VPS ini' > /usr/local/bin/docker && chmod +x /usr/local/bin/docker"
 
+    # Simpan metadata
     cat > $META_DIR/${NAME}.json <<EOF
 {
   "name": "$NAME",
@@ -133,60 +131,46 @@ chmod +x /usr/bin/curl"
 }
 EOF
 
-    echo
     echo "$LINE"
-    echo "   VPS Berhasil Dibuat!"
+    echo "VPS Berhasil Dibuat!"
     echo "$LINE"
-    echo "Nama VPS   : $NAME"
-    echo "OS Image   : $IMAGE"
-    echo "User Login : $USER"
-    echo "Password   : $PASS"
-    echo "SSH Port   : $PORT"
-    echo "Login Cmd  : ssh $USER@$(curl -s ifconfig.me) -p $PORT"
-    echo "$LINE"
-    echo
-    docker exec -it $NAME bash -c "neofetch || true"
+    show_info "$NAME"
+}
+
+show_info() {
+    NAME=$1
+    if [[ -f $META_DIR/${NAME}.json ]]; then
+        IMAGE=$(jq -r .image $META_DIR/${NAME}.json)
+        USER=$(jq -r .user $META_DIR/${NAME}.json)
+        PASS=$(jq -r .password $META_DIR/${NAME}.json)
+        PORT=$(jq -r .port $META_DIR/${NAME}.json)
+        echo "Nama VPS   : $NAME"
+        echo "OS Image   : $IMAGE"
+        echo "User Login : $USER"
+        echo "Password   : $PASS"
+        echo "SSH Port   : $PORT"
+        echo "Login Cmd  : ssh $USER@$(curl -s ifconfig.me) -p $PORT"
+        echo "$LINE"
+        docker exec -it $NAME bash -c "neofetch || true"
+    else
+        echo "Metadata tidak ditemukan!"
+    fi
 }
 
 control_vps() {
-    list_vps
-    read -p "Masukkan nama VPS: " NAME
-    echo "1) Start"
-    echo "2) Stop"
-    echo "3) Restart"
-    echo "4) Hapus"
-    echo "5) Info"
-    read -p "Pilihan: " act
+    echo "1) Start VPS"
+    echo "2) Stop VPS"
+    echo "3) Restart VPS"
+    echo "4) Delete VPS"
+    echo "5) Info VPS"
+    read -p "Pilih aksi: " act
+    read -p "Nama VPS: " NAME
     case $act in
         1) docker start $NAME ;;
         2) docker stop $NAME ;;
         3) docker restart $NAME ;;
         4) docker rm -f $NAME && rm -f $META_DIR/${NAME}.json ;;
-        5) 
-            META="$META_DIR/${NAME}.json"
-            if [[ -f "$META" ]]; then
-                NAME=$(jq -r .name $META)
-                IMAGE=$(jq -r .image $META)
-                USER=$(jq -r .user $META)
-                PASS=$(jq -r .password $META)
-                PORT=$(jq -r .port $META)
-
-                echo "$LINE"
-                echo "   Informasi VPS: $NAME"
-                echo "$LINE"
-                echo "Nama VPS   : $NAME"
-                echo "OS Image   : $IMAGE"
-                echo "User Login : $USER"
-                echo "Password   : $PASS"
-                echo "SSH Port   : $PORT"
-                echo "Login Cmd  : ssh $USER@$(curl -s ifconfig.me) -p $PORT"
-                echo "$LINE"
-                docker stats --no-stream $NAME
-                echo "$LINE"
-            else
-                echo "⚠️ Metadata VPS tidak ditemukan."
-            fi
-            ;;
+        5) show_info $NAME ;;
     esac
 }
 
