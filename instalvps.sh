@@ -93,7 +93,6 @@ build_vps() {
     [[ -n "$LIMIT_CPU" ]] && OPTS="$OPTS --cpus=$LIMIT_CPU"
     [[ -n "$LIMIT_RAM" ]] && OPTS="$OPTS --memory=$LIMIT_RAM"
 
-    # cek support disk limit
     if [[ -n "$LIMIT_DISK" ]]; then
         if docker info 2>/dev/null | grep -q "Storage Driver: overlay2"; then
             if mount | grep -q "xfs" && mount | grep -q "pquota"; then
@@ -108,14 +107,13 @@ build_vps() {
         fi
     fi
 
-    # jalankan dengan shell dulu
     CID=$(docker run -dit --name "$NAME" -p $PORT:22 $OPTS --hostname "$NAME" $IMAGE /bin/sh)
 
-    # Install package sesuai OS
+    # Install paket sesuai OS
     if [[ "$IMAGE" == alpine* ]]; then
         docker exec -it $NAME sh -c "apk update && apk add git openssh sudo bash nano vim curl wget neofetch"
     elif [[ "$IMAGE" == *archlinux* ]]; then
-        docker exec -it $NAME sh -c "pacman -Sy --noconfirm base-devel git openssh sudo nano vim curl wget iproute2 inetutils net-tools neofetch"
+        docker exec -it $NAME sh -c "pacman -Sy --noconfirm base-devel git openssh sudo nano vim curl wget iproute2 inetutils net-tools fastfetch"
     elif [[ "$IMAGE" == *centos* || "$IMAGE" == *rockylinux* || "$IMAGE" == *almalinux* ]]; then
         docker exec -it $NAME bash -c "yum install -y git openssh-server sudo nano vim curl wget net-tools iproute iputils neofetch"
     elif [[ "$IMAGE" == *fedora* ]]; then
@@ -126,7 +124,7 @@ build_vps() {
         docker exec -it $NAME bash -c "apt-get update && apt-get install -y git openssh-server sudo nano vim curl wget net-tools iproute2 neofetch"
     fi
 
-    # Set password dan user
+    # Set password & user
     if [[ "$MODE" == "1" ]]; then
         docker exec -it $NAME sh -c "echo 'root:$PASS' | chpasswd && \
             echo 'PermitRootLogin yes' >> /etc/ssh/sshd_config && \
@@ -139,13 +137,13 @@ build_vps() {
         USER="user"
     fi
 
-    # cek sshd, kalau ada → commit & run ulang dengan sshd -D
+    # Commit jadi image baru dengan sshd -D
     if docker exec -it $NAME which sshd >/dev/null 2>&1; then
         docker commit $NAME ${NAME}-img >/dev/null
         docker rm -f $NAME >/dev/null
         CID=$(docker run -dit --name "$NAME" -p $PORT:22 $OPTS --hostname "$NAME" ${NAME}-img /usr/sbin/sshd -D)
     else
-        echo "❌ SSHD tidak ditemukan di container!"
+        echo "❌ SSHD tidak ditemukan!"
     fi
 
     save_info "$NAME"
@@ -165,7 +163,64 @@ build_vps() {
     echo "Login Cmd  : ssh $USER@$(curl -s ifconfig.me) -p $PORT"
     echo "$LINE"
     echo
-    docker exec -it $NAME sh -c "neofetch || true" || true
+    docker exec -it $NAME sh -c "command -v fastfetch >/dev/null 2>&1 && fastfetch || (command -v neofetch >/dev/null 2>&1 && neofetch || true)" || true
+}
+
+info_vps() {
+    read -p "Masukkan nama VPS: " NAME
+    INFO_FILE="/var/lib/vpsmaker/${NAME}.json"
+    if [[ -f $INFO_FILE ]]; then
+        cat $INFO_FILE | jq
+    else
+        echo "❌ Data VPS tidak ditemukan."
+    fi
+}
+
+stats_vps() {
+    read -p "Masukkan nama VPS: " NAME
+    docker stats --no-stream $NAME
+}
+
+change_pass() {
+    read -p "Masukkan nama VPS: " NAME
+    read -p "User (root/user): " U
+    read -s -p "Password baru: " NEWPASS
+    echo
+    docker exec -it $NAME sh -c "echo '$U:$NEWPASS' | chpasswd"
+    echo "✅ Password $U berhasil diganti"
+    jq ".password = \"$NEWPASS\"" /var/lib/vpsmaker/${NAME}.json > /tmp/inf.$$
+    mv /tmp/inf.$$ /var/lib/vpsmaker/${NAME}.json
+}
+
+change_limit() {
+    read -p "Masukkan nama VPS: " NAME
+    read -p "Limit CPU baru (kosong=skip): " NEW_CPU
+    read -p "Limit RAM baru (kosong=skip): " NEW_RAM
+    read -p "Limit Disk baru (kosong=skip): " NEW_DISK
+
+    docker stop $NAME
+    OPTS=""
+    [[ -n "$NEW_CPU" ]] && OPTS="$OPTS --cpus=$NEW_CPU"
+    [[ -n "$NEW_RAM" ]] && OPTS="$OPTS --memory=$NEW_RAM"
+
+    if [[ -n "$NEW_DISK" ]]; then
+        if docker info 2>/dev/null | grep -q "Storage Driver: overlay2"; then
+            if mount | grep -q "xfs" && mount | grep -q "pquota"; then
+                OPTS="$OPTS --storage-opt size=$NEW_DISK"
+            else
+                echo "⚠️ Host tidak support limit disk, skip."
+            fi
+        fi
+    fi
+
+    IMAGE=$(jq -r .image /var/lib/vpsmaker/${NAME}.json)
+    PORT=$(jq -r .port /var/lib/vpsmaker/${NAME}.json)
+
+    docker commit $NAME ${NAME}-img >/dev/null
+    docker rm -f $NAME
+    docker run -dit --name "$NAME" -p $PORT:22 $OPTS ${NAME}-img /usr/sbin/sshd -D
+
+    echo "✅ Limit VPS diperbarui."
 }
 
 control_vps() {
@@ -175,12 +230,20 @@ control_vps() {
     echo "2) Stop"
     echo "3) Restart"
     echo "4) Hapus"
+    echo "5) Info VPS"
+    echo "6) Stats VPS"
+    echo "7) Ganti Password"
+    echo "8) Ubah Limit"
     read -p "Pilihan: " act
     case $act in
         1) docker start $NAME ;;
         2) docker stop $NAME ;;
         3) docker restart $NAME ;;
         4) docker rm -f $NAME ;;
+        5) info_vps ;;
+        6) stats_vps ;;
+        7) change_pass ;;
+        8) change_limit ;;
     esac
 }
 
