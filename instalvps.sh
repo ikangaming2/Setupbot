@@ -13,19 +13,40 @@ header() {
     echo "$LINE"
 }
 
+# Cek & Install tools di host utama
+install_requirements() {
+    if ! command -v docker &>/dev/null; then
+        echo "🔧 Menginstal Docker..."
+        apt-get update -y && apt-get install -y docker.io
+        systemctl enable --now docker
+    fi
+    if ! command -v jq &>/dev/null; then
+        echo "🔧 Menginstal jq..."
+        apt-get install -y jq
+    fi
+}
+
+# Auto pull semua OS images
+pull_images() {
+    echo "📥 Menarik semua image OS..."
+    for img in debian:13 debian:12 debian:11 debian:10 \
+    ubuntu:24.04 ubuntu:22.04 ubuntu:20.04 ubuntu:18.04 \
+    centos:7 rockylinux:9 almalinux:9 alpine:latest \
+    kalilinux/kali-rolling:latest archlinux:latest fedora:latest opensuse/leap:latest; do
+        docker pull $img
+    done
+}
+
 list_os() {
     echo "Pilih OS image:"
-    echo " 1) debian:13             12) oraclelinux:8"
-    echo " 2) debian:12             13) opensuse/leap:15"
-    echo " 3) debian:11             14) opensuse/tumbleweed"
-    echo " 4) ubuntu:24.04          15) fedora:41"
-    echo " 5) ubuntu:22.04          16) fedora:40"
-    echo " 6) ubuntu:20.04          17) almalinux:9"
-    echo " 7) centos:9              18) almalinux:8"
-    echo " 8) centos:7              19) alpine:latest"
-    echo " 9) rockylinux:9          20) archlinux:latest"
-    echo "10) rockylinux:8          21) kalilinux/kali-rolling:latest"
-    echo "11) oraclelinux:9"
+    echo " 1) debian:13                   9)  kalilinux/kali-rolling:latest"
+    echo " 2) debian:12                  10) archlinux:latest"
+    echo " 3) debian:11                  11) fedora:latest"
+    echo " 4) debian:10                  12) opensuse/leap:latest"
+    echo " 5) ubuntu:24.04               13) centos:7"
+    echo " 6) ubuntu:22.04               14) rockylinux:9"
+    echo " 7) ubuntu:20.04               15) almalinux:9"
+    echo " 8) ubuntu:18.04               16) alpine:latest"
 }
 
 list_vps() {
@@ -40,24 +61,19 @@ build_vps() {
         1) IMAGE="debian:13" ;;
         2) IMAGE="debian:12" ;;
         3) IMAGE="debian:11" ;;
-        4) IMAGE="ubuntu:24.04" ;;
-        5) IMAGE="ubuntu:22.04" ;;
-        6) IMAGE="ubuntu:20.04" ;;
-        7) IMAGE="centos:9" ;;
-        8) IMAGE="centos:7" ;;
-        9) IMAGE="rockylinux:9" ;;
-        10) IMAGE="rockylinux:8" ;;
-        11) IMAGE="oraclelinux:9" ;;
-        12) IMAGE="oraclelinux:8" ;;
-        13) IMAGE="opensuse/leap:15" ;;
-        14) IMAGE="opensuse/tumbleweed" ;;
-        15) IMAGE="fedora:41" ;;
-        16) IMAGE="fedora:40" ;;
-        17) IMAGE="almalinux:9" ;;
-        18) IMAGE="almalinux:8" ;;
-        19) IMAGE="alpine:latest" ;;
-        20) IMAGE="archlinux:latest" ;;
-        21) IMAGE="kalilinux/kali-rolling:latest" ;;
+        4) IMAGE="debian:10" ;;
+        5) IMAGE="ubuntu:24.04" ;;
+        6) IMAGE="ubuntu:22.04" ;;
+        7) IMAGE="ubuntu:20.04" ;;
+        8) IMAGE="ubuntu:18.04" ;;
+        9) IMAGE="kalilinux/kali-rolling:latest" ;;
+        10) IMAGE="archlinux:latest" ;;
+        11) IMAGE="fedora:latest" ;;
+        12) IMAGE="opensuse/leap:latest" ;;
+        13) IMAGE="centos:7" ;;
+        14) IMAGE="rockylinux:9" ;;
+        15) IMAGE="almalinux:9" ;;
+        16) IMAGE="alpine:latest" ;;
         *) echo "Pilihan salah"; return ;;
     esac
 
@@ -232,6 +248,9 @@ control_vps() {
             ;;
     esac
 }
+
+install_requirements
+pull_images
 
 while true; do
     header
