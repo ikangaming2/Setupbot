@@ -162,6 +162,40 @@ EOF
     docker exec -it $NAME bash -c "neofetch || true"
 }
 
+info_vps() {
+    read -p "Nama VPS: " NAME
+    if [ ! -f "$META_DIR/${NAME}.json" ]; then
+        echo "❌ VPS tidak ditemukan!"
+        return
+    fi
+
+    STATUS=$(docker inspect -f '{{.State.Status}}' $NAME)
+    UPTIME=$(docker inspect -f '{{.State.StartedAt}}' $NAME | cut -d. -f1)
+
+    echo "$LINE"
+    echo "📊 INFO VPS $NAME"
+    echo "$LINE"
+    jq . $META_DIR/${NAME}.json
+    echo "Status   : $STATUS"
+    echo "Uptime   : $UPTIME"
+    echo "$LINE"
+}
+
+control_vps() {
+    echo "1) Start VPS"
+    echo "2) Stop VPS"
+    echo "3) Restart VPS"
+    echo "4) Delete VPS"
+    read -p "#? " c
+    read -p "Nama VPS: " NAME
+    case $c in
+        1) docker start $NAME ;;
+        2) docker stop $NAME ;;
+        3) docker restart $NAME ;;
+        4) docker rm -f $NAME && rm -f $META_DIR/${NAME}.json ;;
+    esac
+}
+
 check_dependencies
 
 while true; do
@@ -169,14 +203,18 @@ while true; do
     echo "1) List OS"
     echo "2) List VPS"
     echo "3) Build VPS"
-    echo "4) Exit"
+    echo "4) Info VPS"
+    echo "5) Kontrol VPS (Start/Stop/Restart/Delete)"
+    echo "6) Exit"
     echo "$LINE"
     read -p "Pilih menu: " m
     case $m in
         1) list_os ;;
         2) list_vps ;;
         3) build_vps ;;
-        4) exit ;;
+        4) info_vps ;;
+        5) control_vps ;;
+        6) exit ;;
     esac
     read -p "Tekan Enter untuk kembali ke menu..."
 done
