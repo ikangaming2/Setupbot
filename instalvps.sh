@@ -9,7 +9,7 @@ check_dep() {
     if ! command -v docker >/dev/null 2>&1; then
         echo "⚙️ Menginstall Docker..."
         apt-get update -y >/dev/null 2>&1 || yum makecache >/dev/null 2>&1
-        apt-get install -y docker.io >/dev/null 2>&1 || yum install -y docker -y >/dev/null 2>&1
+        apt-get install -y docker.io -y >/dev/null 2>&1 || yum install -y docker -y >/dev/null 2>&1
         systemctl enable docker --now >/dev/null 2>&1 || service docker start
     fi
     if ! command -v jq >/dev/null 2>&1; then
@@ -108,7 +108,8 @@ build_vps() {
         fi
     fi
 
-    CID=$(docker run -dit --name "$NAME" -p $PORT:22 $OPTS --hostname "$NAME" $IMAGE /usr/sbin/sshd -D || true)
+    # jalankan dengan shell dulu
+    CID=$(docker run -dit --name "$NAME" -p $PORT:22 $OPTS --hostname "$NAME" $IMAGE /bin/sh)
 
     # Install package sesuai OS
     if [[ "$IMAGE" == alpine* ]]; then
@@ -138,6 +139,15 @@ build_vps() {
         USER="user"
     fi
 
+    # cek sshd, kalau ada → commit & run ulang dengan sshd -D
+    if docker exec -it $NAME which sshd >/dev/null 2>&1; then
+        docker commit $NAME ${NAME}-img >/dev/null
+        docker rm -f $NAME >/dev/null
+        CID=$(docker run -dit --name "$NAME" -p $PORT:22 $OPTS --hostname "$NAME" ${NAME}-img /usr/sbin/sshd -D)
+    else
+        echo "❌ SSHD tidak ditemukan di container!"
+    fi
+
     save_info "$NAME"
 
     echo
@@ -155,7 +165,7 @@ build_vps() {
     echo "Login Cmd  : ssh $USER@$(curl -s ifconfig.me) -p $PORT"
     echo "$LINE"
     echo
-    docker exec -it $NAME sh -c "neofetch || true"
+    docker exec -it $NAME sh -c "neofetch || true" || true
 }
 
 control_vps() {
