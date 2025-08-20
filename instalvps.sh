@@ -1,43 +1,40 @@
 #!/bin/bash
+set -e
 
 TITLE=" VPS DOCKER MAKER by NAUVAL "
 LINE=$(printf '═%.0s' {1..70})
 
+# Cek dependency
+check_dep() {
+    if ! command -v docker >/dev/null 2>&1; then
+        echo "⚙️ Menginstall Docker..."
+        apt-get update -y >/dev/null 2>&1 || yum makecache >/dev/null 2>&1
+        apt-get install -y docker.io >/dev/null 2>&1 || yum install -y docker -y >/dev/null 2>&1
+        systemctl enable docker --now >/dev/null 2>&1 || service docker start
+    fi
+    if ! command -v jq >/dev/null 2>&1; then
+        echo "⚙️ Menginstall jq..."
+        apt-get install -y jq >/dev/null 2>&1 || yum install -y jq -y >/dev/null 2>&1
+    fi
+}
+check_dep
+
 header() {
     clear
     echo "$LINE"
-    echo "$TITLE" | awk -v w=${#LINE} '{
-        pad = int((w - length($0)) / 2);
-        printf "%"pad"s%s\n", "", $0
-    }'
+    printf "║%*s%*s║\n" $(((${#LINE}-${#TITLE})/2)) "$TITLE" $(((${#LINE}-${#TITLE}+1)/2)) ""
     echo "$LINE"
-}
-
-check_env() {
-    if ! command -v docker &> /dev/null; then
-        echo "🔧 Installing Docker..."
-        curl -fsSL https://get.docker.com | sh
-        systemctl enable docker --now
-    fi
-    if ! command -v node &> /dev/null; then
-        echo "🔧 Installing Node.js..."
-        curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-        apt-get install -y nodejs
-    fi
 }
 
 list_os() {
     echo "Pilih OS image:"
-    echo " 1) debian:13                    11) almalinux:9"
-    echo " 2) debian:12                    12) fedora:38"
-    echo " 3) debian:11                    13) fedora:39"
-    echo " 4) ubuntu:22.04                 14) fedora:40"
-    echo " 5) ubuntu:20.04                 15) opensuse/leap"
-    echo " 6) ubuntu:18.04                 16) oraclelinux:9"
-    echo " 7) centos:7                     17) oraclelinux:8"
-    echo " 8) rockylinux:9                 18) alpine:latest"
-    echo " 9) kalilinux/kali-rolling       19) archlinux:latest"
-    echo "10) parrotsec/security:latest    20) slackware:latest"
+    echo " 1) debian:13                        8) alpine:latest"
+    echo " 2) debian:12                        9) kalilinux/kali-rolling:latest"
+    echo " 3) debian:11                       10) archlinux:latest"
+    echo " 4) ubuntu:22.04                    11) fedora:latest"
+    echo " 5) ubuntu:20.04                    12) opensuse/leap:latest"
+    echo " 6) centos:7                        13) almalinux:9"
+    echo " 7) rockylinux:9"
 }
 
 list_vps() {
@@ -45,25 +42,22 @@ list_vps() {
     docker ps -a --format "table {{.ID}}\t{{.Names}}\t{{.Status}}\t{{.Image}}"
 }
 
-install_base() {
+save_info() {
     NAME=$1
-    IMAGE=$2
-
-    if [[ "$IMAGE" == alpine* ]]; then
-        docker exec -it $NAME sh -c "apk update && apk add git openssh sudo bash nano vim curl wget neofetch unzip zip"
-    elif [[ "$IMAGE" == *archlinux* ]]; then
-        docker exec -it $NAME bash -c "pacman -Sy --noconfirm git openssh sudo nano vim curl wget net-tools iproute2 neofetch unzip zip"
-    elif [[ "$IMAGE" == *centos* || "$IMAGE" == *rockylinux* || "$IMAGE" == *oraclelinux* || "$IMAGE" == *almalinux* ]]; then
-        docker exec -it $NAME bash -c "yum install -y git openssh-server sudo nano vim curl wget net-tools iproute iputils neofetch unzip zip"
-    elif [[ "$IMAGE" == *fedora* || "$IMAGE" == *opensuse* || "$IMAGE" == *slackware* ]]; then
-        docker exec -it $NAME bash -c "dnf install -y git openssh-server sudo nano vim curl wget net-tools iproute neofetch unzip zip || zypper install -y git openssh sudo nano vim curl wget neofetch unzip zip"
-    else
-        docker exec -it $NAME bash -c "apt-get update && apt-get install -y git openssh-server sudo nano vim curl wget net-tools iproute2 unzip zip neofetch || true"
-    fi
-
-    # fallback jika neofetch tidak ada
-    docker exec -it $NAME bash -c "if ! command -v neofetch >/dev/null 2>&1; then \
-        git clone https://github.com/dylanaraps/neofetch.git /opt/neofetch && ln -s /opt/neofetch/neofetch /usr/local/bin/neofetch; fi"
+    INFO_FILE="/var/lib/vpsmaker/${NAME}.json"
+    mkdir -p /var/lib/vpsmaker
+    cat > "$INFO_FILE" <<EOF
+{
+  "name": "$NAME",
+  "image": "$IMAGE",
+  "user": "$USER",
+  "port": "$PORT",
+  "password": "$PASS",
+  "limit_cpu": "$LIMIT_CPU",
+  "limit_ram": "$LIMIT_RAM",
+  "limit_disk": "$LIMIT_DISK"
+}
+EOF
 }
 
 build_vps() {
@@ -75,21 +69,14 @@ build_vps() {
         3) IMAGE="debian:11" ;;
         4) IMAGE="ubuntu:22.04" ;;
         5) IMAGE="ubuntu:20.04" ;;
-        6) IMAGE="ubuntu:18.04" ;;
-        7) IMAGE="centos:7" ;;
-        8) IMAGE="rockylinux:9" ;;
+        6) IMAGE="centos:7" ;;
+        7) IMAGE="rockylinux:9" ;;
+        8) IMAGE="alpine:latest" ;;
         9) IMAGE="kalilinux/kali-rolling:latest" ;;
-        10) IMAGE="parrotsec/security:latest" ;;
-        11) IMAGE="almalinux:9" ;;
-        12) IMAGE="fedora:38" ;;
-        13) IMAGE="fedora:39" ;;
-        14) IMAGE="fedora:40" ;;
-        15) IMAGE="opensuse/leap" ;;
-        16) IMAGE="oraclelinux:9" ;;
-        17) IMAGE="oraclelinux:8" ;;
-        18) IMAGE="alpine:latest" ;;
-        19) IMAGE="archlinux:latest" ;;
-        20) IMAGE="slackware:latest" ;;
+        10) IMAGE="archlinux:latest" ;;
+        11) IMAGE="fedora:latest" ;;
+        12) IMAGE="opensuse/leap:latest" ;;
+        13) IMAGE="almalinux:9" ;;
         *) echo "Pilihan salah"; return ;;
     esac
 
@@ -98,37 +85,46 @@ build_vps() {
     read -p "Mode user [1=Root / 2=User biasa]: " MODE
     read -s -p "Password: " PASS
     echo
+    read -p "Limit CPU (contoh 1.5, kosong=tanpa limit): " LIMIT_CPU
+    read -p "Limit RAM (contoh 1G, kosong=tanpa limit): " LIMIT_RAM
+    read -p "Limit Disk (contoh 10G, kosong=tanpa limit): " LIMIT_DISK
 
-    CID=$(docker run -dit --name "$NAME" -p $PORT:22 --hostname "$NAME" $IMAGE /bin/sh)
-    echo "Container ID: $CID"
+    OPTS=""
+    [[ -n "$LIMIT_CPU" ]] && OPTS="$OPTS --cpus=$LIMIT_CPU"
+    [[ -n "$LIMIT_RAM" ]] && OPTS="$OPTS --memory=$LIMIT_RAM"
+    [[ -n "$LIMIT_DISK" ]] && OPTS="$OPTS --storage-opt size=$LIMIT_DISK"
 
-    install_base "$NAME" "$IMAGE"
+    CID=$(docker run -dit --name "$NAME" -p $PORT:22 $OPTS --hostname "$NAME" $IMAGE /usr/sbin/sshd -D || true)
 
-    # Blokir Pterodactyl & Docker
-    docker exec -it $NAME bash -c "echo '127.0.0.1 pterodactyl-installer.se' >> /etc/hosts"
-    docker exec -it $NAME bash -c "echo '::1 pterodactyl-installer.se' >> /etc/hosts"
-    docker exec -it $NAME bash -c "if [ -f /usr/bin/curl ]; then mv /usr/bin/curl /usr/bin/curl.real; fi"
-    docker exec -it $NAME bash -c "cat > /usr/bin/curl <<'EOF'
-#!/bin/bash
-if [[ \$* == *pterodactyl-installer.se* ]]; then
-  echo '🚫 Pterodactyl installer diblokir'
-  exit 1
-fi
-exec /usr/bin/curl.real \"\$@\"
-EOF
-chmod +x /usr/bin/curl"
-    docker exec -it $NAME bash -c "echo 'echo 🚫 Docker tidak boleh digunakan di VPS ini' > /usr/local/bin/docker && chmod +x /usr/local/bin/docker"
+    # Install package sesuai OS
+    if [[ "$IMAGE" == alpine* ]]; then
+        docker exec -it $NAME sh -c "apk update && apk add git openssh sudo bash nano vim curl wget neofetch"
+    elif [[ "$IMAGE" == *archlinux* ]]; then
+        docker exec -it $NAME sh -c "pacman -Sy --noconfirm base-devel git openssh sudo nano vim curl wget iproute2 inetutils net-tools neofetch"
+    elif [[ "$IMAGE" == *centos* || "$IMAGE" == *rockylinux* || "$IMAGE" == *almalinux* ]]; then
+        docker exec -it $NAME bash -c "yum install -y git openssh-server sudo nano vim curl wget net-tools iproute iputils neofetch"
+    elif [[ "$IMAGE" == *fedora* ]]; then
+        docker exec -it $NAME bash -c "dnf install -y git openssh-server sudo nano vim curl wget iproute iputils net-tools neofetch"
+    elif [[ "$IMAGE" == *opensuse* ]]; then
+        docker exec -it $NAME bash -c "zypper install -y git openssh sudo nano vim curl wget iproute2 iputils net-tools neofetch"
+    else
+        docker exec -it $NAME bash -c "apt-get update && apt-get install -y git openssh-server sudo nano vim curl wget net-tools iproute2 neofetch"
+    fi
 
-    # Setup user login
+    # Set password dan user
     if [[ "$MODE" == "1" ]]; then
-        docker exec -it $NAME bash -c "echo 'root:$PASS' | chpasswd && echo 'PermitRootLogin yes' >> /etc/ssh/sshd_config && echo 'PasswordAuthentication yes' >> /etc/ssh/sshd_config"
+        docker exec -it $NAME sh -c "echo 'root:$PASS' | chpasswd && \
+            echo 'PermitRootLogin yes' >> /etc/ssh/sshd_config && \
+            echo 'PasswordAuthentication yes' >> /etc/ssh/sshd_config"
         USER="root"
     else
-        docker exec -it $NAME bash -c "useradd -m -s /bin/bash user && echo 'user:$PASS' | chpasswd && adduser user sudo && echo 'PasswordAuthentication yes' >> /etc/ssh/sshd_config"
+        docker exec -it $NAME sh -c "useradd -m -s /bin/bash user && echo 'user:$PASS' | chpasswd && \
+            echo 'user ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers && \
+            echo 'PasswordAuthentication yes' >> /etc/ssh/sshd_config"
         USER="user"
     fi
 
-    docker exec -d $NAME /usr/sbin/sshd -D
+    save_info "$NAME"
 
     echo
     echo "$LINE"
@@ -139,22 +135,61 @@ chmod +x /usr/bin/curl"
     echo "User Login : $USER"
     echo "Password   : $PASS"
     echo "SSH Port   : $PORT"
+    [[ -n "$LIMIT_CPU" ]] && echo "Limit CPU  : $LIMIT_CPU core"
+    [[ -n "$LIMIT_RAM" ]] && echo "Limit RAM  : $LIMIT_RAM"
+    [[ -n "$LIMIT_DISK" ]] && echo "Limit Disk : $LIMIT_DISK"
     echo "Login Cmd  : ssh $USER@$(curl -s ifconfig.me) -p $PORT"
     echo "$LINE"
     echo
-    docker exec -it $NAME bash -c "neofetch || true"
+    docker exec -it $NAME sh -c "neofetch || true"
 }
 
 info_vps() {
-    list_vps
     read -p "Masukkan nama VPS: " NAME
-    echo "$LINE"
-    echo " Info VPS: $NAME"
-    echo "$LINE"
-    docker inspect -f 'Nama: {{.Name}} | Image: {{.Config.Image}} | IP: {{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}} | Status: {{.State.Status}}' $NAME
-    echo "$LINE"
-    docker exec -it $NAME bash -c "neofetch || true"
-    echo "$LINE"
+    INFO_FILE="/var/lib/vpsmaker/${NAME}.json"
+    if [[ ! -f $INFO_FILE ]]; then
+        echo "❌ Data VPS tidak ditemukan."
+        return
+    fi
+    cat $INFO_FILE | jq
+}
+
+stats_vps() {
+    read -p "Masukkan nama VPS: " NAME
+    docker stats --no-stream $NAME
+}
+
+change_pass() {
+    read -p "Masukkan nama VPS: " NAME
+    read -p "User (root/user): " U
+    read -s -p "Password baru: " NEWPASS
+    echo
+    docker exec -it $NAME sh -c "echo '$U:$NEWPASS' | chpasswd"
+    echo "✅ Password $U berhasil diganti"
+    jq ".password = \"$NEWPASS\"" /var/lib/vpsmaker/${NAME}.json > /tmp/inf.$$
+    mv /tmp/inf.$$ /var/lib/vpsmaker/${NAME}.json
+}
+
+change_limit() {
+    read -p "Masukkan nama VPS: " NAME
+    read -p "Limit CPU baru (kosong=skip): " NEW_CPU
+    read -p "Limit RAM baru (kosong=skip): " NEW_RAM
+    read -p "Limit Disk baru (kosong=skip): " NEW_DISK
+
+    docker stop $NAME
+    OPTS=""
+    [[ -n "$NEW_CPU" ]] && OPTS="$OPTS --cpus=$NEW_CPU"
+    [[ -n "$NEW_RAM" ]] && OPTS="$OPTS --memory=$NEW_RAM"
+    [[ -n "$NEW_DISK" ]] && OPTS="$OPTS --storage-opt size=$NEW_DISK"
+
+    IMAGE=$(jq -r .image /var/lib/vpsmaker/${NAME}.json)
+    PORT=$(jq -r .port /var/lib/vpsmaker/${NAME}.json)
+
+    docker commit $NAME ${NAME}-img >/dev/null
+    docker rm -f $NAME
+    docker run -dit --name "$NAME" -p $PORT:22 $OPTS ${NAME}-img /usr/sbin/sshd -D
+
+    echo "✅ Limit VPS berhasil diperbarui."
 }
 
 control_vps() {
@@ -164,16 +199,22 @@ control_vps() {
     echo "2) Stop"
     echo "3) Restart"
     echo "4) Hapus"
+    echo "5) Info VPS"
+    echo "6) Stats VPS"
+    echo "7) Ganti Password"
+    echo "8) Ubah Limit"
     read -p "Pilihan: " act
     case $act in
         1) docker start $NAME ;;
         2) docker stop $NAME ;;
         3) docker restart $NAME ;;
         4) docker rm -f $NAME ;;
+        5) info_vps ;;
+        6) stats_vps ;;
+        7) change_pass ;;
+        8) change_limit ;;
     esac
 }
-
-check_env
 
 while true; do
     header
@@ -181,8 +222,7 @@ while true; do
     echo "2) List VPS"
     echo "3) Build VPS"
     echo "4) Control VPS"
-    echo "5) Info VPS"
-    echo "6) Exit"
+    echo "5) Exit"
     echo "$LINE"
     read -p "Pilih menu: " m
     case $m in
@@ -190,8 +230,7 @@ while true; do
         2) list_vps ;;
         3) build_vps ;;
         4) control_vps ;;
-        5) info_vps ;;
-        6) exit ;;
+        5) exit ;;
     esac
     read -p "Tekan Enter untuk kembali ke menu..."
 done
