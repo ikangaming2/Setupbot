@@ -92,7 +92,21 @@ build_vps() {
     OPTS=""
     [[ -n "$LIMIT_CPU" ]] && OPTS="$OPTS --cpus=$LIMIT_CPU"
     [[ -n "$LIMIT_RAM" ]] && OPTS="$OPTS --memory=$LIMIT_RAM"
-    [[ -n "$LIMIT_DISK" ]] && OPTS="$OPTS --storage-opt size=$LIMIT_DISK"
+
+    # cek support disk limit
+    if [[ -n "$LIMIT_DISK" ]]; then
+        if docker info 2>/dev/null | grep -q "Storage Driver: overlay2"; then
+            if mount | grep -q "xfs" && mount | grep -q "pquota"; then
+                OPTS="$OPTS --storage-opt size=$LIMIT_DISK"
+            else
+                echo "⚠️ Host tidak mendukung limit disk (butuh XFS + pquota). Disk limit di-skip."
+                LIMIT_DISK=""
+            fi
+        else
+            echo "⚠️ Storage driver bukan overlay2. Disk limit di-skip."
+            LIMIT_DISK=""
+        fi
+    fi
 
     CID=$(docker run -dit --name "$NAME" -p $PORT:22 $OPTS --hostname "$NAME" $IMAGE /usr/sbin/sshd -D || true)
 
@@ -144,54 +158,6 @@ build_vps() {
     docker exec -it $NAME sh -c "neofetch || true"
 }
 
-info_vps() {
-    read -p "Masukkan nama VPS: " NAME
-    INFO_FILE="/var/lib/vpsmaker/${NAME}.json"
-    if [[ ! -f $INFO_FILE ]]; then
-        echo "❌ Data VPS tidak ditemukan."
-        return
-    fi
-    cat $INFO_FILE | jq
-}
-
-stats_vps() {
-    read -p "Masukkan nama VPS: " NAME
-    docker stats --no-stream $NAME
-}
-
-change_pass() {
-    read -p "Masukkan nama VPS: " NAME
-    read -p "User (root/user): " U
-    read -s -p "Password baru: " NEWPASS
-    echo
-    docker exec -it $NAME sh -c "echo '$U:$NEWPASS' | chpasswd"
-    echo "✅ Password $U berhasil diganti"
-    jq ".password = \"$NEWPASS\"" /var/lib/vpsmaker/${NAME}.json > /tmp/inf.$$
-    mv /tmp/inf.$$ /var/lib/vpsmaker/${NAME}.json
-}
-
-change_limit() {
-    read -p "Masukkan nama VPS: " NAME
-    read -p "Limit CPU baru (kosong=skip): " NEW_CPU
-    read -p "Limit RAM baru (kosong=skip): " NEW_RAM
-    read -p "Limit Disk baru (kosong=skip): " NEW_DISK
-
-    docker stop $NAME
-    OPTS=""
-    [[ -n "$NEW_CPU" ]] && OPTS="$OPTS --cpus=$NEW_CPU"
-    [[ -n "$NEW_RAM" ]] && OPTS="$OPTS --memory=$NEW_RAM"
-    [[ -n "$NEW_DISK" ]] && OPTS="$OPTS --storage-opt size=$NEW_DISK"
-
-    IMAGE=$(jq -r .image /var/lib/vpsmaker/${NAME}.json)
-    PORT=$(jq -r .port /var/lib/vpsmaker/${NAME}.json)
-
-    docker commit $NAME ${NAME}-img >/dev/null
-    docker rm -f $NAME
-    docker run -dit --name "$NAME" -p $PORT:22 $OPTS ${NAME}-img /usr/sbin/sshd -D
-
-    echo "✅ Limit VPS berhasil diperbarui."
-}
-
 control_vps() {
     list_vps
     read -p "Masukkan nama VPS: " NAME
@@ -199,20 +165,12 @@ control_vps() {
     echo "2) Stop"
     echo "3) Restart"
     echo "4) Hapus"
-    echo "5) Info VPS"
-    echo "6) Stats VPS"
-    echo "7) Ganti Password"
-    echo "8) Ubah Limit"
     read -p "Pilihan: " act
     case $act in
         1) docker start $NAME ;;
         2) docker stop $NAME ;;
         3) docker restart $NAME ;;
         4) docker rm -f $NAME ;;
-        5) info_vps ;;
-        6) stats_vps ;;
-        7) change_pass ;;
-        8) change_limit ;;
     esac
 }
 
