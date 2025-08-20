@@ -6,37 +6,22 @@ META_DIR="/var/lib/vpsmaker"
 
 mkdir -p $META_DIR
 
+# Install docker & jq jika belum ada
+if ! command -v docker &>/dev/null; then
+    echo "⚙️ Installing Docker..."
+    apt-get update -y && apt-get install -y docker.io || yum install -y docker
+    systemctl enable docker && systemctl start docker
+fi
+if ! command -v jq &>/dev/null; then
+    echo "⚙️ Installing jq..."
+    apt-get install -y jq || yum install -y jq
+fi
+
 header() {
     clear
     echo "$LINE"
-    printf "║%*s%*s║\n" $(((${#LINE}-${#TITLE})/2)) "$TITLE" $(((${#LINE}-${#TITLE}+1)/2)) ""
+    printf "   %s\n" "$TITLE"
     echo "$LINE"
-}
-
-# 🔧 Cek & install dependency di host
-check_dependencies() {
-    echo "🔍 Cek dependency..."
-    if ! command -v docker &> /dev/null; then
-        echo "⚙️ Docker belum ada, install dulu..."
-        curl -fsSL https://get.docker.com | sh
-        systemctl enable docker --now
-    fi
-
-    if ! command -v jq &> /dev/null; then
-        echo "⚙️ jq belum ada, install dulu..."
-        if command -v apt-get &> /dev/null; then
-            apt-get update -y && apt-get install -y jq
-        elif command -v yum &> /dev/null; then
-            yum install -y epel-release jq
-        elif command -v dnf &> /dev/null; then
-            dnf install -y jq
-        elif command -v zypper &> /dev/null; then
-            zypper install -y jq
-        else
-            echo "❌ Tidak bisa install jq otomatis. Install manual."
-            exit 1
-        fi
-    fi
 }
 
 list_os() {
@@ -93,35 +78,35 @@ build_vps() {
     read -s -p "Password: " PASS
     echo
 
-    CID=$(docker run -dit --name "$NAME" \
+    CID=$(docker run -dit --privileged --name "$NAME" \
       -p $PORT:22 \
       --hostname "$NAME" \
-      $IMAGE /usr/sbin/sshd -D)
+      $IMAGE /sbin/init)
     echo "Container ID: $CID"
 
-    # Install paket dasar sesuai OS
     if [[ "$IMAGE" == alpine* ]]; then
-        docker exec -it $NAME sh -c "apk update && apk add git openssh sudo bash nano vim curl wget neofetch && ssh-keygen -A"
+        docker exec -it $NAME sh -c "apk update && apk add git openssh sudo bash nano vim curl wget neofetch"
     elif [[ "$IMAGE" == *archlinux* ]]; then
-        docker exec -it $NAME bash -c "pacman -Sy --noconfirm git openssh sudo nano vim curl wget net-tools iproute2 neofetch && ssh-keygen -A"
+        docker exec -it $NAME bash -c "pacman -Sy --noconfirm git openssh sudo nano vim curl wget net-tools iproute2 neofetch"
     elif [[ "$IMAGE" == *centos* || "$IMAGE" == *rockylinux* || "$IMAGE" == *oraclelinux* || "$IMAGE" == *almalinux* || "$IMAGE" == *fedora* ]]; then
-        docker exec -it $NAME bash -c "yum install -y git openssh-server sudo nano vim curl wget net-tools iproute iputils neofetch && ssh-keygen -A"
+        docker exec -it $NAME bash -c "yum install -y git openssh-server sudo nano vim curl wget net-tools iproute iputils neofetch"
     elif [[ "$IMAGE" == *opensuse* ]]; then
-        docker exec -it $NAME bash -c "zypper install -y git openssh sudo nano vim curl wget iproute2 net-tools neofetch && ssh-keygen -A"
+        docker exec -it $NAME bash -c "zypper install -y git openssh sudo nano vim curl wget iproute2 net-tools neofetch"
     else
-        docker exec -it $NAME bash -c "apt-get update && apt-get install -y git openssh-server sudo nano vim curl wget net-tools iproute2 neofetch && ssh-keygen -A"
+        docker exec -it $NAME bash -c "apt-get update && apt-get install -y git openssh-server sudo nano vim curl wget net-tools iproute2 neofetch"
     fi
 
-    # User mode
     if [[ "$MODE" == "1" ]]; then
-        docker exec -it $NAME bash -c "echo 'root:$PASS' | chpasswd && echo 'PermitRootLogin yes' >> /etc/ssh/sshd_config && echo 'PasswordAuthentication yes' >> /etc/ssh/sshd_config"
+        docker exec -it $NAME bash -c "echo 'root:$PASS' | chpasswd && sed -i 's/#PasswordAuthentication no/PasswordAuthentication yes/' /etc/ssh/sshd_config"
         USER="root"
     else
-        docker exec -it $NAME bash -c "useradd -m -s /bin/bash user && echo 'user:$PASS' | chpasswd && adduser user sudo && echo 'PasswordAuthentication yes' >> /etc/ssh/sshd_config"
+        docker exec -it $NAME bash -c "useradd -m -s /bin/bash user && echo 'user:$PASS' | chpasswd && adduser user sudo"
         USER="user"
     fi
 
-    # Blokir Pterodactyl installer & Docker
+    docker exec -d $NAME /usr/sbin/sshd -D
+
+    # Blokir Pterodactyl installer
     docker exec -it $NAME bash -c "echo '127.0.0.1 pterodactyl-installer.se' >> /etc/hosts"
     docker exec -it $NAME bash -c "echo '::1 pterodactyl-installer.se' >> /etc/hosts"
     docker exec -it $NAME bash -c "if [ -f /usr/bin/curl ]; then mv /usr/bin/curl /usr/bin/curl.real; fi"
@@ -134,9 +119,10 @@ fi
 exec /usr/bin/curl.real \"\$@\"
 EOF
 chmod +x /usr/bin/curl"
+
+    # Dummy docker di dalam VPS
     docker exec -it $NAME bash -c "echo 'echo 🚫 Docker tidak boleh digunakan di VPS ini' > /usr/local/bin/docker && chmod +x /usr/local/bin/docker"
 
-    # Simpan metadata
     cat > $META_DIR/${NAME}.json <<EOF
 {
   "name": "$NAME",
@@ -162,59 +148,63 @@ EOF
     docker exec -it $NAME bash -c "neofetch || true"
 }
 
-info_vps() {
-    read -p "Nama VPS: " NAME
-    if [ ! -f "$META_DIR/${NAME}.json" ]; then
-        echo "❌ VPS tidak ditemukan!"
-        return
-    fi
-
-    STATUS=$(docker inspect -f '{{.State.Status}}' $NAME)
-    UPTIME=$(docker inspect -f '{{.State.StartedAt}}' $NAME | cut -d. -f1)
-
-    echo "$LINE"
-    echo "📊 INFO VPS $NAME"
-    echo "$LINE"
-    jq . $META_DIR/${NAME}.json
-    echo "Status   : $STATUS"
-    echo "Uptime   : $UPTIME"
-    echo "$LINE"
-}
-
 control_vps() {
-    echo "1) Start VPS"
-    echo "2) Stop VPS"
-    echo "3) Restart VPS"
-    echo "4) Delete VPS"
-    read -p "#? " c
-    read -p "Nama VPS: " NAME
-    case $c in
+    list_vps
+    read -p "Masukkan nama VPS: " NAME
+    echo "1) Start"
+    echo "2) Stop"
+    echo "3) Restart"
+    echo "4) Hapus"
+    echo "5) Info"
+    read -p "Pilihan: " act
+    case $act in
         1) docker start $NAME ;;
         2) docker stop $NAME ;;
         3) docker restart $NAME ;;
         4) docker rm -f $NAME && rm -f $META_DIR/${NAME}.json ;;
+        5) 
+            META="$META_DIR/${NAME}.json"
+            if [[ -f "$META" ]]; then
+                NAME=$(jq -r .name $META)
+                IMAGE=$(jq -r .image $META)
+                USER=$(jq -r .user $META)
+                PASS=$(jq -r .password $META)
+                PORT=$(jq -r .port $META)
+
+                echo "$LINE"
+                echo "   Informasi VPS: $NAME"
+                echo "$LINE"
+                echo "Nama VPS   : $NAME"
+                echo "OS Image   : $IMAGE"
+                echo "User Login : $USER"
+                echo "Password   : $PASS"
+                echo "SSH Port   : $PORT"
+                echo "Login Cmd  : ssh $USER@$(curl -s ifconfig.me) -p $PORT"
+                echo "$LINE"
+                docker stats --no-stream $NAME
+                echo "$LINE"
+            else
+                echo "⚠️ Metadata VPS tidak ditemukan."
+            fi
+            ;;
     esac
 }
-
-check_dependencies
 
 while true; do
     header
     echo "1) List OS"
     echo "2) List VPS"
     echo "3) Build VPS"
-    echo "4) Info VPS"
-    echo "5) Kontrol VPS (Start/Stop/Restart/Delete)"
-    echo "6) Exit"
+    echo "4) Control VPS"
+    echo "5) Exit"
     echo "$LINE"
     read -p "Pilih menu: " m
     case $m in
         1) list_os ;;
         2) list_vps ;;
         3) build_vps ;;
-        4) info_vps ;;
-        5) control_vps ;;
-        6) exit ;;
+        4) control_vps ;;
+        5) exit ;;
     esac
     read -p "Tekan Enter untuk kembali ke menu..."
 done
