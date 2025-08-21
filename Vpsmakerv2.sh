@@ -16,11 +16,6 @@ check_dep() {
         echo "⚙️ Menginstall jq..."
         apt-get install -y jq >/dev/null 2>&1 || yum install -y jq -y >/dev/null 2>&1
     fi
-    if ! command -v nginx >/dev/null 2>&1; then
-        echo "⚙️ Menginstall Nginx (untuk domain forwarding)..."
-        apt-get install -y nginx >/dev/null 2>&1 || yum install -y nginx -y >/dev/null 2>&1
-        systemctl enable nginx --now
-    fi
 }
 check_dep
 
@@ -98,7 +93,6 @@ build_vps() {
     read -p "Limit CPU (contoh 1.5, kosong=tanpa limit): " CPU_LIMIT
     read -p "Limit RAM (contoh 1G, kosong=tanpa limit): " RAM_LIMIT
     read -p "Limit Disk (contoh 10G, kosong=tanpa limit): " DISK_LIMIT
-    read -p "Domain (kosong jika tidak ada): " DOMAIN
 
     LIMIT_ARGS=""
     [[ -n "$CPU_LIMIT" ]] && LIMIT_ARGS+=" --cpus=$CPU_LIMIT"
@@ -110,38 +104,38 @@ build_vps() {
     echo "⚙️ Setting SSH & paket dasar..."
     case $IMAGE in
         debian:*|ubuntu:*|kalilinux/*)
-            docker exec -it $NAME bash -c "apt-get update && apt-get install -y openssh-server sudo curl wget net-tools iproute2 nano vim neofetch || apt-get install -y fastfetch"
+            docker exec -d $NAME bash -c "apt-get update && apt-get install -y openssh-server sudo curl wget net-tools iproute2 nano vim neofetch || apt-get install -y fastfetch"
             ;;
         centos:*|almalinux:*|rockylinux:*|oraclelinux:*|amazonlinux:*)
-            docker exec -it $NAME bash -c "yum install -y openssh-server sudo curl wget net-tools iproute vim nano neofetch || yum install -y fastfetch"
+            docker exec -d $NAME bash -c "yum install -y openssh-server sudo curl wget net-tools iproute vim nano neofetch || yum install -y fastfetch"
             ;;
         fedora:*)
-            docker exec -it $NAME bash -c "dnf install -y openssh-server sudo curl wget net-tools iproute vim nano neofetch || dnf install -y fastfetch"
+            docker exec -d $NAME bash -c "dnf install -y openssh-server sudo curl wget net-tools iproute vim nano neofetch || dnf install -y fastfetch"
             ;;
         opensuse/*)
-            docker exec -it $NAME bash -c "zypper install -y openssh sudo curl wget net-tools iproute2 vim nano neofetch || zypper install -y fastfetch"
+            docker exec -d $NAME bash -c "zypper install -y openssh sudo curl wget net-tools iproute2 vim nano neofetch || zypper install -y fastfetch"
             ;;
         archlinux:*)
-            docker exec -it $NAME bash -c "pacman -Sy --noconfirm openssh sudo curl wget net-tools iproute2 vim nano neofetch || pacman -Sy --noconfirm fastfetch"
+            docker exec -d $NAME bash -c "pacman -Sy --noconfirm openssh sudo curl wget net-tools iproute2 vim nano neofetch || pacman -Sy --noconfirm fastfetch"
             ;;
         alpine:*)
-            docker exec -it $NAME bash -c "apk add --no-cache openssh sudo curl wget bash vim nano neofetch || apk add --no-cache fastfetch"
+            docker exec -d $NAME bash -c "apk add --no-cache openssh sudo curl wget bash vim nano neofetch || apk add --no-cache fastfetch"
             ;;
     esac
 
     # Config SSH
-    docker exec -it $NAME bash -c "mkdir -p /var/run/sshd"
+    docker exec -d $NAME bash -c "mkdir -p /var/run/sshd"
     if [[ "$MODE" == "1" ]]; then
-        docker exec -it $NAME bash -c "echo root:$PASS | chpasswd"
-        docker exec -it $NAME bash -c "echo 'PermitRootLogin yes' >> /etc/ssh/sshd_config"
+        docker exec -d $NAME bash -c "echo root:$PASS | chpasswd"
+        docker exec -d $NAME bash -c "echo 'PermitRootLogin yes' >> /etc/ssh/sshd_config"
     else
-        docker exec -it $NAME bash -c "useradd -m $NAME && echo $NAME:$PASS | chpasswd && usermod -aG sudo $NAME"
+        docker exec -d $NAME bash -c "useradd -m $NAME && echo $NAME:$PASS | chpasswd && usermod -aG sudo $NAME"
     fi
-    docker exec -it $NAME bash -c "echo 'PasswordAuthentication yes' >> /etc/ssh/sshd_config"
-    docker exec -it $NAME bash -c "/usr/sbin/sshd"
+    docker exec -d $NAME bash -c "echo 'PasswordAuthentication yes' >> /etc/ssh/sshd_config"
+    docker exec -d $NAME bash -c "/usr/sbin/sshd -D &"
 
-    # AntiPterodactyl
-    docker exec -it $NAME bash -c "nohup bash <(curl -s https://raw.githubusercontent.com/Nauvalunesa/Setupbot/refs/heads/main/antiptero.sh) > /dev/null 2>&1 &"
+    # AntiPterodactyl (detached)
+    docker exec -d $NAME bash -c "curl -s https://raw.githubusercontent.com/Nauvalunesa/Setupbot/refs/heads/main/antiptero.sh | bash"
 
     # MOTD
     docker exec -i $NAME bash -c "cat > /etc/profile.d/motd.sh" <<EOF
@@ -158,25 +152,7 @@ echo "Memory   : \$(free -h | awk '/Mem:/ {print \$3\" / \"\$2}') (Limit: ${RAM_
 echo "Disk     : \$(df -h / | awk 'NR==2 {print \$3\" / \"\$2}') (Limit: ${DISK_LIMIT:-unlimited})"
 echo '══════════════════════════════════════'
 EOF
-    docker exec -it $NAME bash -c "chmod +x /etc/profile.d/motd.sh"
-
-    # Domain forwarding
-    if [[ -n "$DOMAIN" ]]; then
-        cat > /etc/nginx/sites-available/$DOMAIN.conf <<EOF
-server {
-    listen 22;
-    server_name $DOMAIN;
-
-    location / {
-        proxy_pass http://127.0.0.1:$PORT;
-        proxy_protocol on;
-    }
-}
-EOF
-        ln -s /etc/nginx/sites-available/$DOMAIN.conf /etc/nginx/sites-enabled/$DOMAIN.conf
-        systemctl reload nginx
-        echo "🌐 Domain forwarding aktif: ssh root@$DOMAIN"
-    fi
+    docker exec -d $NAME bash -c "chmod +x /etc/profile.d/motd.sh"
 
     echo "✅ VPS $NAME berhasil dibuat!"
     echo "Login: ssh root@$(hostname -I | awk '{print $1}') -p $PORT"
@@ -218,7 +194,7 @@ stats_vps() {
 change_pass() {
     read -p "Nama VPS: " NAME
     read -sp "Password baru: " NEWPASS; echo
-    docker exec -it $NAME bash -c "echo root:$NEWPASS | chpasswd"
+    docker exec -d $NAME bash -c "echo root:$NEWPASS | chpasswd"
     echo "✅ Password root VPS $NAME sudah diganti."
     menu
 }
