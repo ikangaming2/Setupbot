@@ -46,15 +46,8 @@ list_os() {
     echo "19) oraclelinux:8"
     echo "20) amazonlinux:2"
     echo "21) parrotsec/security:latest"
-    echo "22) blackarch/blackarch:latest"
-    echo "23) gentoo/stage3:latest"
-    echo "24) clearlinux:latest"
-    echo "25) voidlinux/voidlinux:latest"
-    echo "26) slackware:latest"
-    echo "27) blankon/blankon:latest   # Linux asal Indonesia"
-    echo "28) ign/igos-nusantara:latest # Linux asal Indonesia"
-    echo "29) androidemu/androix:latest # Android container"
-    echo "30) armbian/armbian:latest    # Armbian container"
+    echo "22) gentoo/stage3:latest"
+    echo "23) clearlinux:latest"    
 }
 
 install_pkg() {
