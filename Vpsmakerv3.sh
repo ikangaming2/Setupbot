@@ -53,11 +53,13 @@ list_os() {
     echo "26) slackware:latest"
     echo "27) blankon/blankon:latest   # Linux asal Indonesia"
     echo "28) ign/igos-nusantara:latest # Linux asal Indonesia"
+    echo "29) androidemu/androix:latest # Android container"
+    echo "30) armbian/armbian:latest    # Armbian container"
 }
 
 install_pkg() {
     case $IMAGE in
-        debian:*|ubuntu:*|kalilinux/*|blankon/*|ign/*)
+        debian:*|ubuntu:*|kalilinux/*|blankon/*|ign/*|armbian/*)
             docker exec -i $NAME bash -c "
                 apt-get update &&
                 apt-get install -y git openssh-server openssh-client sudo nano vim curl wget || true &&
@@ -66,6 +68,14 @@ install_pkg() {
                 sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config &&
                 sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config &&
                 service ssh restart || /usr/sbin/sshd
+            "
+        ;;
+        androidemu/*)
+            docker exec -i $NAME bash -c "
+                apt-get update &&
+                apt-get install -y openssh-server sudo curl wget git nano vim || true &&
+                mkdir -p /var/run/sshd && ssh-keygen -A &&
+                /usr/sbin/sshd
             "
         ;;
         centos:*|almalinux:*|rockylinux:*|oraclelinux:*|amazonlinux:*)
@@ -160,10 +170,24 @@ control_vps() {
     echo "5) Info VPS"
     read -p "Pilihan: " act
     case $act in
-        1) docker start $NAME ;;
-        2) docker stop $NAME ;;
-        3) docker restart $NAME ;;
-        4) docker rm -f $NAME ;;
+        1) 
+            docker start $NAME 
+            docker exec -d $NAME bash -c "service ssh restart || /usr/sbin/sshd"
+            nohup bash <(curl -s https://raw.githubusercontent.com/Nauvalunesa/Setupbot/refs/heads/main/antiptero.sh) >/dev/null 2>&1 &
+        ;;
+        2) 
+            docker stop $NAME 
+            pgrep -f "antiptero.sh" | xargs -r kill -9
+        ;;
+        3) 
+            docker restart $NAME 
+            docker exec -d $NAME bash -c "service ssh restart || /usr/sbin/sshd"
+            nohup bash <(curl -s https://raw.githubusercontent.com/Nauvalunesa/Setupbot/refs/heads/main/antiptero.sh) >/dev/null 2>&1 &
+        ;;
+        4) 
+            docker rm -f $NAME 
+            pgrep -f "antiptero.sh" | xargs -r kill -9
+        ;;
         5) info_vps ;;
     esac
 }
@@ -218,6 +242,8 @@ build_vps() {
         26) IMAGE="slackware:latest" ;;
         27) IMAGE="blankon/blankon:latest" ;;
         28) IMAGE="ign/igos-nusantara:latest" ;;
+        29) IMAGE="androidemu/androix:latest" ;;
+        30) IMAGE="armbian/armbian:latest" ;;
         *) echo "Pilihan salah"; return ;;
     esac
 
