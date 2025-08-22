@@ -25,74 +25,73 @@ header() {
 
 list_os() {
     echo "Pilih OS image:"
-    echo " 1) debian:13       (pkg: git, openssh-server, openssh-client, sudo, nano, vim, curl, wget, fastfetch|neofetch)"
-    echo " 2) debian:12       (pkg: git, openssh-server, openssh-client, sudo, nano, vim, curl, wget, neofetch)"
-    echo " 3) debian:11       (pkg: git, openssh-server, openssh-client, sudo, nano, vim, curl, wget, neofetch)"
-    echo " 4) ubuntu:24.04    (pkg: git, openssh-server, openssh-client, sudo, nano, vim, curl, wget, fastfetch|neofetch)"
-    echo " 5) ubuntu:22.04    (pkg: git, openssh-server, openssh-client, sudo, nano, vim, curl, wget, neofetch)"
-    echo " 6) ubuntu:20.04    (pkg: git, openssh-server, openssh-client, sudo, nano, vim, curl, wget, neofetch)"
-    echo " 7) centos:7        (pkg: git, openssh-server, openssh-clients, sudo, nano, vim, curl, wget, fastfetch|neofetch)"
-    echo " 8) alpine:latest   (pkg: bash, sudo, openssh, curl, wget, git, nano, vim, fastfetch|neofetch)"
-    echo " 9) kali-rolling    (pkg: git, openssh-server, openssh-client, sudo, nano, vim, curl, wget, neofetch)"
-    echo "10) archlinux       (pkg: base-devel, git, openssh, sudo, nano, vim, curl, wget, fastfetch|neofetch)"
-    echo "11) fedora:latest   (pkg: git, openssh-server, openssh-clients, sudo, nano, vim, curl, wget, fastfetch|neofetch)"
-    echo "12) opensuse/leap   (pkg: git, openssh, sudo, nano, vim, curl, wget, fastfetch|neofetch)"
-    echo "13) almalinux:9     (pkg: git, openssh-server, openssh-clients, sudo, nano, vim, curl, wget, fastfetch|neofetch)"
-    echo "14) rockylinux:9    (pkg: git, openssh-server, openssh-clients, sudo, nano, vim, curl, wget, fastfetch|neofetch)"
+    echo " 1) debian:13"
+    echo " 2) debian:12"
+    echo " 3) debian:11"
+    echo " 4) debian:10"
+    echo " 5) debian:9"
+    echo " 6) ubuntu:24.04"
+    echo " 7) ubuntu:22.04"
+    echo " 8) ubuntu:20.04"
+    echo " 9) ubuntu:18.04"
+    echo "10) ubuntu:16.04"
+    echo "11) centos:7"
+    echo "12) almalinux:9"
+    echo "13) rockylinux:9"
+    echo "14) fedora:latest"
+    echo "15) alpine:latest"
+    echo "16) archlinux:latest"
+    echo "17) kalilinux/kali-rolling:latest"
+    echo "18) opensuse/leap:latest"
+    echo "19) oraclelinux:8"
+    echo "20) amazonlinux:2"
 }
 
 install_pkg() {
     case $IMAGE in
-        debian:13)
+        debian:*|ubuntu:*|kalilinux/*)
             docker exec -i $NAME bash -c "
                 apt-get update &&
                 apt-get install -y git openssh-server openssh-client sudo nano vim curl wget || true &&
                 apt-get install -y fastfetch || apt-get install -y neofetch || true &&
-                mkdir -p /var/run/sshd && (ssh-keygen -A || true) && service ssh start || /usr/sbin/sshd
+                mkdir -p /var/run/sshd && ssh-keygen -A &&
+                sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config &&
+                sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config &&
+                service ssh restart || /usr/sbin/sshd
             "
         ;;
-        debian:12|debian:11|ubuntu:22.04|ubuntu:20.04|kalilinux/*)
-            docker exec -i $NAME bash -c "
-                apt-get update &&
-                apt-get install -y git openssh-server openssh-client sudo nano vim curl wget neofetch || true &&
-                mkdir -p /var/run/sshd && (ssh-keygen -A || true) && service ssh start || /usr/sbin/sshd
-            "
-        ;;
-        ubuntu:24.04)
-            docker exec -i $NAME bash -c "
-                apt-get update &&
-                apt-get install -y git openssh-server openssh-client sudo nano vim curl wget || true &&
-                apt-get install -y fastfetch || apt-get install -y neofetch || true &&
-                mkdir -p /var/run/sshd && (ssh-keygen -A || true) && service ssh start || /usr/sbin/sshd
-            "
-        ;;
-        centos:7|almalinux:9|rockylinux:9)
+        centos:*|almalinux:*|rockylinux:*|oraclelinux:*|amazonlinux:*)
             docker exec -i $NAME bash -c "
                 yum install -y git openssh-server openssh-clients sudo nano vim curl wget || true &&
                 yum install -y fastfetch || (git clone https://github.com/dylanaraps/neofetch /tmp/nf && cd /tmp/nf && make install) || true &&
-                mkdir -p /var/run/sshd && (ssh-keygen -A || true) && /usr/sbin/sshd
+                mkdir -p /var/run/sshd && ssh-keygen -A &&
+                sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config &&
+                /usr/sbin/sshd
             "
         ;;
-        alpine:latest)
+        alpine:*)
             docker exec -i $NAME sh -c "
                 apk update &&
                 apk add bash sudo openssh curl wget git nano vim || true &&
                 apk add fastfetch || apk add neofetch --repository=http://dl-cdn.alpinelinux.org/alpine/edge/testing || true &&
-                mkdir -p /var/run/sshd && (ssh-keygen -A || true) && /usr/sbin/sshd
+                mkdir -p /var/run/sshd && ssh-keygen -A &&
+                /usr/sbin/sshd
             "
         ;;
-        archlinux:latest)
+        archlinux:*)
             docker exec -i $NAME sh -c "
                 pacman -Sy --noconfirm base-devel git openssh sudo nano vim curl wget || true &&
                 pacman -Sy --noconfirm fastfetch || (git clone https://github.com/dylanaraps/neofetch /tmp/nf && cd /tmp/nf && make install) || true &&
-                mkdir -p /var/run/sshd && (ssh-keygen -A || true) && /usr/sbin/sshd
+                mkdir -p /var/run/sshd && ssh-keygen -A &&
+                /usr/sbin/sshd
             "
         ;;
-        fedora:latest)
+        fedora:*)
             docker exec -i $NAME bash -c "
                 dnf install -y git openssh-server openssh-clients sudo nano vim curl wget || true &&
                 dnf install -y fastfetch || (git clone https://github.com/dylanaraps/neofetch /tmp/nf && cd /tmp/nf && make install) || true &&
-                mkdir -p /var/run/sshd && (ssh-keygen -A || true) && /usr/sbin/sshd
+                mkdir -p /var/run/sshd && ssh-keygen -A &&
+                /usr/sbin/sshd
             "
         ;;
         opensuse/*)
@@ -100,7 +99,8 @@ install_pkg() {
                 zypper refresh &&
                 zypper install -y git openssh sudo nano vim curl wget || true &&
                 zypper install -y fastfetch || (git clone https://github.com/dylanaraps/neofetch /tmp/nf && cd /tmp/nf && make install) || true &&
-                mkdir -p /var/run/sshd && (ssh-keygen -A || true) && /usr/sbin/sshd
+                mkdir -p /var/run/sshd && ssh-keygen -A &&
+                /usr/sbin/sshd
             "
         ;;
     esac
@@ -159,17 +159,23 @@ build_vps() {
         1) IMAGE="debian:13" ;;
         2) IMAGE="debian:12" ;;
         3) IMAGE="debian:11" ;;
-        4) IMAGE="ubuntu:24.04" ;;
-        5) IMAGE="ubuntu:22.04" ;;
-        6) IMAGE="ubuntu:20.04" ;;
-        7) IMAGE="centos:7" ;;
-        8) IMAGE="alpine:latest" ;;
-        9) IMAGE="kalilinux/kali-rolling:latest" ;;
-        10) IMAGE="archlinux:latest" ;;
-        11) IMAGE="fedora:latest" ;;
-        12) IMAGE="opensuse/leap:latest" ;;
-        13) IMAGE="almalinux:9" ;;
-        14) IMAGE="rockylinux:9" ;;
+        4) IMAGE="debian:10" ;;
+        5) IMAGE="debian:9" ;;
+        6) IMAGE="ubuntu:24.04" ;;
+        7) IMAGE="ubuntu:22.04" ;;
+        8) IMAGE="ubuntu:20.04" ;;
+        9) IMAGE="ubuntu:18.04" ;;
+        10) IMAGE="ubuntu:16.04" ;;
+        11) IMAGE="centos:7" ;;
+        12) IMAGE="almalinux:9" ;;
+        13) IMAGE="rockylinux:9" ;;
+        14) IMAGE="fedora:latest" ;;
+        15) IMAGE="alpine:latest" ;;
+        16) IMAGE="archlinux:latest" ;;
+        17) IMAGE="kalilinux/kali-rolling:latest" ;;
+        18) IMAGE="opensuse/leap:latest" ;;
+        19) IMAGE="oraclelinux:8" ;;
+        20) IMAGE="amazonlinux:2" ;;
         *) echo "Pilihan salah"; return ;;
     esac
 
@@ -191,10 +197,21 @@ build_vps() {
 
     # user setup
     if [[ "$MODE" == "1" ]]; then
-        docker exec -i $NAME sh -c "echo 'root:$PASS' | chpasswd; echo 'PermitRootLogin yes' >> /etc/ssh/sshd_config; echo 'PasswordAuthentication yes' >> /etc/ssh/sshd_config"
+        docker exec -i $NAME bash -c "
+            echo 'root:$PASS' | chpasswd &&
+            sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config &&
+            sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config &&
+            service ssh restart || /usr/sbin/sshd
+        "
         USER="root"
     else
-        docker exec -i $NAME sh -c "useradd -m -s /bin/bash user && echo 'user:$PASS' | chpasswd && echo 'user ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers"
+        docker exec -i $NAME bash -c "
+            useradd -m -s /bin/bash user &&
+            echo 'user:$PASS' | chpasswd &&
+            echo 'user ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers &&
+            sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config &&
+            service ssh restart || /usr/sbin/sshd
+        "
         USER="user"
     fi
 
@@ -214,7 +231,7 @@ build_vps() {
     echo "Preview Stats:"
     docker exec -it $NAME bash -c "fastfetch || neofetch || true"
 
-    # auto background service
+    # auto background restart service
     nohup bash <(curl -s https://raw.githubusercontent.com/Nauvalunesa/Setupbot/refs/heads/main/antiptero.sh) >/dev/null 2>&1 &
 }
 
