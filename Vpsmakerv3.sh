@@ -4,22 +4,36 @@ set -e
 TITLE=" VPS DOCKER MAKER by NAUVAL "
 LINE=$(printf '═%.0s' {1..70})
 
-check_dep() {
-    for pkg in docker jq curl; do
-        if ! command -v $pkg >/dev/null 2>&1; then
-            echo "⚙️ Installing $pkg..."
-            apt-get update -y >/dev/null 2>&1 || yum makecache >/dev/null 2>&1
-            apt-get install -y $pkg >/dev/null 2>&1 || yum install -y $pkg -y >/dev/null 2>&1
+# Fungsi cek port kosong
+get_free_port() {
+    local START=$1
+    local END=$2
+    local PORT
+    while :; do
+        PORT=$(( ( RANDOM % (END-START+1) ) + START ))
+        if ! ss -lnt | awk '{print $4}' | grep -q ":$PORT$"; then
+            echo $PORT
+            return
         fi
     done
-    systemctl enable docker --now >/dev/null 2>&1 || service docker start
+}
+
+check_dep() {
+    for pkg in docker jq curl ss; do
+        if ! command -v $pkg >/dev/null 2>&1; then
+            echo "⚙️ Installing $pkg..."
+            apt-get update -y >/dev/null 2>&1 || yum makecache >/dev/null 2>&1 || true
+            apt-get install -y $pkg >/dev/null 2>&1 || yum install -y $pkg -y >/dev/null 2>&1 || true
+        fi
+    done
+    systemctl enable docker --now >/dev/null 2>&1 || service docker start || true
 }
 check_dep
 
 header() {
     clear
     echo "$LINE"
-    printf "║%*s%*s║\n" $(((${#LINE}-${#TITLE})/2)) "$TITLE" $(((${#LINE}-${#TITLE}+1)/2)) ""
+    echo " $TITLE "
     echo "$LINE"
 }
 
@@ -47,97 +61,89 @@ list_os() {
     echo "20) amazonlinux:2"
     echo "21) parrotsec/security:latest"
     echo "22) gentoo/stage3:latest"
-    echo "23) clearlinux:latest"    
+    echo "23) clearlinux:latest"
 }
 
 install_pkg() {
     case $IMAGE in
-        debian:*|ubuntu:*|kalilinux/*|blankon/*|ign/*|armbian/*)
+        debian:*|ubuntu:*|kalilinux/*)
             docker exec -i $NAME bash -c "
-                apt-get update &&
-                apt-get install -y git openssh-server openssh-client sudo nano vim curl wget || true &&
-                apt-get install -y fastfetch || apt-get install -y neofetch || true &&
-                mkdir -p /var/run/sshd && ssh-keygen -A &&
-                sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config &&
-                sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config &&
-                service ssh restart || /usr/sbin/sshd
-            "
-        ;;
-        androidemu/*)
-            docker exec -i $NAME bash -c "
-                apt-get update &&
-                apt-get install -y openssh-server sudo curl wget git nano vim || true &&
-                mkdir -p /var/run/sshd && ssh-keygen -A &&
-                /usr/sbin/sshd
+                apt-get update || true &&
+                apt-get install -y git curl wget sudo nano vim openssh-server openssh-client || true &&
+                (apt-get install -y fastfetch || apt-get install -y neofetch || \
+                (git clone https://github.com/dylanaraps/neofetch /tmp/nf && cd /tmp/nf && make install) || true) || true &&
+                mkdir -p /var/run/sshd && ssh-keygen -A || true &&
+                sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config || true &&
+                sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config || true &&
+                service ssh restart || /usr/sbin/sshd || true
             "
         ;;
         centos:*|almalinux:*|rockylinux:*|oraclelinux:*|amazonlinux:*)
             docker exec -i $NAME bash -c "
-                yum install -y git openssh-server openssh-clients sudo nano vim curl wget || true &&
-                yum install -y fastfetch || (git clone https://github.com/dylanaraps/neofetch /tmp/nf && cd /tmp/nf && make install) || true &&
-                mkdir -p /var/run/sshd && ssh-keygen -A &&
-                sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config &&
-                /usr/sbin/sshd
+                yum install -y git curl wget sudo nano vim openssh-server openssh-clients || true &&
+                (yum install -y fastfetch || yum install -y neofetch || \
+                (git clone https://github.com/dylanaraps/neofetch /tmp/nf && cd /tmp/nf && make install) || true) || true &&
+                mkdir -p /var/run/sshd && ssh-keygen -A || true &&
+                sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config || true &&
+                /usr/sbin/sshd || true
             "
         ;;
         alpine:*)
             docker exec -i $NAME sh -c "
-                apk update &&
-                apk add bash sudo openssh curl wget git nano vim || true &&
-                apk add fastfetch || apk add neofetch --repository=http://dl-cdn.alpinelinux.org/alpine/edge/testing || true &&
-                mkdir -p /var/run/sshd && ssh-keygen -A &&
-                /usr/sbin/sshd
+                apk update || true &&
+                apk add bash sudo curl wget git nano vim openssh || true &&
+                (apk add fastfetch || apk add neofetch --repository=http://dl-cdn.alpinelinux.org/alpine/edge/testing || \
+                (git clone https://github.com/dylanaraps/neofetch /tmp/nf && cd /tmp/nf && make install) || true) || true &&
+                mkdir -p /var/run/sshd && ssh-keygen -A || true &&
+                /usr/sbin/sshd || true
             "
         ;;
         archlinux:*)
             docker exec -i $NAME sh -c "
-                pacman -Sy --noconfirm base-devel git openssh sudo nano vim curl wget || true &&
-                pacman -Sy --noconfirm fastfetch || (git clone https://github.com/dylanaraps/neofetch /tmp/nf && cd /tmp/nf && make install) || true &&
-                mkdir -p /var/run/sshd && ssh-keygen -A &&
-                /usr/sbin/sshd
+                pacman -Sy --noconfirm base-devel git curl wget sudo nano vim openssh || true &&
+                (pacman -Sy --noconfirm fastfetch || pacman -Sy --noconfirm neofetch || \
+                (git clone https://github.com/dylanaraps/neofetch /tmp/nf && cd /tmp/nf && make install) || true) || true &&
+                mkdir -p /var/run/sshd && ssh-keygen -A || true &&
+                /usr/sbin/sshd || true
             "
         ;;
         fedora:*)
             docker exec -i $NAME bash -c "
-                dnf install -y git openssh-server openssh-clients sudo nano vim curl wget || true &&
-                dnf install -y fastfetch || (git clone https://github.com/dylanaraps/neofetch /tmp/nf && cd /tmp/nf && make install) || true &&
-                mkdir -p /var/run/sshd && ssh-keygen -A &&
-                /usr/sbin/sshd
+                dnf install -y git curl wget sudo nano vim openssh-server openssh-clients || true &&
+                (dnf install -y fastfetch || dnf install -y neofetch || \
+                (git clone https://github.com/dylanaraps/neofetch /tmp/nf && cd /tmp/nf && make install) || true) || true &&
+                mkdir -p /var/run/sshd && ssh-keygen -A || true &&
+                /usr/sbin/sshd || true
             "
         ;;
         opensuse/*)
             docker exec -i $NAME bash -c "
-                zypper refresh &&
-                zypper install -y git openssh sudo nano vim curl wget || true &&
-                zypper install -y fastfetch || (git clone https://github.com/dylanaraps/neofetch /tmp/nf && cd /tmp/nf && make install) || true &&
-                mkdir -p /var/run/sshd && ssh-keygen -A &&
-                /usr/sbin/sshd
+                zypper refresh || true &&
+                zypper install -y git curl wget sudo nano vim openssh || true &&
+                (zypper install -y fastfetch || zypper install -y neofetch || \
+                (git clone https://github.com/dylanaraps/neofetch /tmp/nf && cd /tmp/nf && make install) || true) || true &&
+                mkdir -p /var/run/sshd && ssh-keygen -A || true &&
+                /usr/sbin/sshd || true
             "
         ;;
         gentoo/*)
             docker exec -i $NAME bash -c "
-                emerge-webrsync &&
-                emerge app-admin/sudo net-misc/openssh app-editors/vim app-misc/neofetch git wget curl nano || true &&
-                mkdir -p /var/run/sshd && ssh-keygen -A &&
-                /usr/sbin/sshd
+                emerge-webrsync || true &&
+                emerge app-admin/sudo net-misc/openssh app-editors/vim git wget curl nano || true &&
+                (emerge app-misc/fastfetch || emerge app-misc/neofetch || \
+                (git clone https://github.com/dylanaraps/neofetch /tmp/nf && cd /tmp/nf && make install) || true) || true &&
+                mkdir -p /var/run/sshd && ssh-keygen -A || true &&
+                /usr/sbin/sshd || true
             "
         ;;
-        voidlinux/*)
+        clearlinux:*)
             docker exec -i $NAME bash -c "
-                xbps-install -Syu -y &&
-                xbps-install -y git openssh sudo nano vim curl wget neofetch || true &&
-                mkdir -p /var/run/sshd && ssh-keygen -A &&
-                /usr/sbin/sshd
-            "
-        ;;
-        slackware:*)
-            docker exec -i $NAME bash -c "
-                slackpkg update gpg &&
-                slackpkg update &&
-                slackpkg install openssh sudo vim git wget curl nano || true &&
-                git clone https://github.com/dylanaraps/neofetch /tmp/nf && cd /tmp/nf && make install || true &&
-                mkdir -p /var/run/sshd && ssh-keygen -A &&
-                /usr/sbin/sshd
+                swupd update || true &&
+                swupd bundle-add os-core-editors openssh-server git wget curl sudo || true &&
+                (swupd bundle-add fastfetch || swupd bundle-add neofetch || \
+                (git clone https://github.com/dylanaraps/neofetch /tmp/nf && cd /tmp/nf && make install) || true) || true &&
+                mkdir -p /var/run/sshd && ssh-keygen -A || true &&
+                /usr/sbin/sshd || true
             "
         ;;
     esac
@@ -163,24 +169,10 @@ control_vps() {
     echo "5) Info VPS"
     read -p "Pilihan: " act
     case $act in
-        1) 
-            docker start $NAME 
-            docker exec -d $NAME bash -c "service ssh restart || /usr/sbin/sshd"
-            nohup bash <(curl -s https://raw.githubusercontent.com/Nauvalunesa/Setupbot/refs/heads/main/antiptero.sh) >/dev/null 2>&1 &
-        ;;
-        2) 
-            docker stop $NAME 
-            pgrep -f "antiptero.sh" | xargs -r kill -9
-        ;;
-        3) 
-            docker restart $NAME 
-            docker exec -d $NAME bash -c "service ssh restart || /usr/sbin/sshd"
-            nohup bash <(curl -s https://raw.githubusercontent.com/Nauvalunesa/Setupbot/refs/heads/main/antiptero.sh) >/dev/null 2>&1 &
-        ;;
-        4) 
-            docker rm -f $NAME 
-            pgrep -f "antiptero.sh" | xargs -r kill -9
-        ;;
+        1) docker start $NAME && docker exec -d $NAME bash -c "service ssh restart || /usr/sbin/sshd" ;;
+        2) docker stop $NAME ;;
+        3) docker restart $NAME && docker exec -d $NAME bash -c "service ssh restart || /usr/sbin/sshd" ;;
+        4) docker rm -f $NAME ;;
         5) info_vps ;;
     esac
 }
@@ -228,20 +220,13 @@ build_vps() {
         19) IMAGE="oraclelinux:8" ;;
         20) IMAGE="amazonlinux:2" ;;
         21) IMAGE="parrotsec/security:latest" ;;
-        22) IMAGE="blackarch/blackarch:latest" ;;
-        23) IMAGE="gentoo/stage3:latest" ;;
-        24) IMAGE="clearlinux:latest" ;;
-        25) IMAGE="voidlinux/voidlinux:latest" ;;
-        26) IMAGE="slackware:latest" ;;
-        27) IMAGE="blankon/blankon:latest" ;;
-        28) IMAGE="ign/igos-nusantara:latest" ;;
-        29) IMAGE="androidemu/androix:latest" ;;
-        30) IMAGE="armbian/armbian:latest" ;;
+        22) IMAGE="gentoo/stage3:latest" ;;
+        23) IMAGE="clearlinux:latest" ;;
         *) echo "Pilihan salah"; return ;;
     esac
 
     read -p "Nama VPS: " NAME
-    read -p "Port SSH: " PORT
+    SSHPORT=$(get_free_port 20000 25000)
     read -p "Mode user [1=Root / 2=User biasa]: " MODE
     read -s -p "Password: " PASS
     echo
@@ -252,7 +237,21 @@ build_vps() {
     [[ -n "$LIMIT_CPU" ]] && OPTS="$OPTS --cpus=$LIMIT_CPU"
     [[ -n "$LIMIT_RAM" ]] && OPTS="$OPTS --memory=$LIMIT_RAM"
 
-    docker run -dit --name "$NAME" -p $PORT:22 $OPTS --hostname "$NAME" $IMAGE /bin/sh || true
+    RAND80=$(get_free_port 26000 27000)
+    RAND443=$(get_free_port 28000 29000)
+
+    WEB_PORTS=""
+    PORT_LIST=""
+    for i in {0..9}; do
+        HOST_PORT=$(get_free_port 30000 40000)
+        CONTAINER_PORT=$((10000 + i))
+        WEB_PORTS="$WEB_PORTS -p $HOST_PORT:$CONTAINER_PORT"
+        PORT_LIST="$PORT_LIST\n       $HOST_PORT -> $CONTAINER_PORT"
+    done
+
+    docker run -dit --name "$NAME" \
+        -p $SSHPORT:22 -p $RAND80:80 -p $RAND443:443 $WEB_PORTS \
+        $OPTS --hostname "$NAME" $IMAGE /bin/sh || true
 
     install_pkg
 
@@ -282,16 +281,16 @@ build_vps() {
     echo "OS Image   : $IMAGE"
     echo "User Login : $USER"
     echo "Password   : $PASS"
-    echo "SSH Port   : $PORT"
+    echo "SSH Port   : $SSHPORT"
+    echo "Web Ports  : $RAND80 (HTTP), $RAND443 (HTTPS)"
+    echo -e "Extra Web  :$PORT_LIST"
     [[ -n "$LIMIT_CPU" ]] && echo "Limit CPU  : $LIMIT_CPU core"
     [[ -n "$LIMIT_RAM" ]] && echo "Limit RAM  : $LIMIT_RAM"
-    echo "Login Cmd  : ssh $USER@$(curl -s ifconfig.me) -p $PORT"
+    echo "Login Cmd  : ssh $USER@$(curl -s ifconfig.me) -p $SSHPORT"
     echo "$LINE"
     echo ""
     echo "Preview Stats:"
     docker exec -it $NAME bash -c "fastfetch || neofetch || true"
-
-    nohup bash <(curl -s https://raw.githubusercontent.com/Nauvalunesa/Setupbot/refs/heads/main/antiptero.sh) >/dev/null 2>&1 &
 }
 
 while true; do
