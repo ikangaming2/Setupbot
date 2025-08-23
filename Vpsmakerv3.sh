@@ -240,17 +240,19 @@ build_vps() {
     RAND80=$(get_free_port 26000 27000)
     RAND443=$(get_free_port 28000 29000)
 
-    WEB_PORTS=""
+    # Port populer fix
+    POPULAR_PORTS=(3000 3030 3300 8800 8000 8088 8070 8090 3070 8040)
+    POPULAR_MAPS=""
     PORT_LIST=""
-    for i in {0..9}; do
+    for P in "${POPULAR_PORTS[@]}"; do
         HOST_PORT=$(get_free_port 30000 40000)
-        CONTAINER_PORT=$((10000 + i))
-        WEB_PORTS="$WEB_PORTS -p $HOST_PORT:$CONTAINER_PORT"
-        PORT_LIST="$PORT_LIST\n       $HOST_PORT -> $CONTAINER_PORT"
+        POPULAR_MAPS="$POPULAR_MAPS -p $HOST_PORT:$P"
+        PORT_LIST="$PORT_LIST\n       $HOST_PORT -> $P"
     done
 
     docker run -dit --name "$NAME" \
-        -p $SSHPORT:22 -p $RAND80:80 -p $RAND443:443 $WEB_PORTS \
+        -p $SSHPORT:22 -p $RAND80:80 -p $RAND443:443 \
+        $POPULAR_MAPS \
         $OPTS --hostname "$NAME" $IMAGE /bin/sh || true
 
     install_pkg
@@ -283,7 +285,7 @@ build_vps() {
     echo "Password   : $PASS"
     echo "SSH Port   : $SSHPORT"
     echo "Web Ports  : $RAND80 (HTTP), $RAND443 (HTTPS)"
-    echo -e "Extra Web  :$PORT_LIST"
+    echo -e "Popular    :$PORT_LIST"
     [[ -n "$LIMIT_CPU" ]] && echo "Limit CPU  : $LIMIT_CPU core"
     [[ -n "$LIMIT_RAM" ]] && echo "Limit RAM  : $LIMIT_RAM"
     echo "Login Cmd  : ssh $USER@$(curl -s ifconfig.me) -p $SSHPORT"
