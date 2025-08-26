@@ -20,7 +20,7 @@ get_free_port() {
 
 # ===== CEK DEPENDENCY HOST =====
 check_dep() {
-    for pkg in docker.io jq curl; do
+    for pkg in docker jq curl; do
         if ! command -v $pkg >/dev/null 2>&1; then
             echo "⚙️ Installing $pkg..."
             apt-get update -y >/dev/null 2>&1 || yum makecache >/dev/null 2>&1
