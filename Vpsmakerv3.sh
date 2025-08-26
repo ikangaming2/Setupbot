@@ -4,9 +4,10 @@ set -e
 TITLE=" VPS DOCKER MAKER by NAUVAL "
 LINE=$(printf '═%.0s' {1..70})
 
+# ===== CEK PORT KOSONG =====
 get_free_port() {
-    local START=$1
-    local END=$2
+    local START=20000
+    local END=40000
     local PORT
     while :; do
         PORT=$(( ( RANDOM % (END-START+1) ) + START ))
@@ -17,25 +18,39 @@ get_free_port() {
     done
 }
 
+# ===== CEK DEPENDENCY HOST =====
 check_dep() {
-    for pkg in docker jq curl ss git make; do
+    for pkg in docker jq curl; do
         if ! command -v $pkg >/dev/null 2>&1; then
             echo "⚙️ Installing $pkg..."
-            apt-get update -y >/dev/null 2>&1 || yum makecache >/dev/null 2>&1 || true
-            apt-get install -y $pkg >/dev/null 2>&1 || yum install -y $pkg -y >/dev/null 2>&1 || true
+            apt-get update -y >/dev/null 2>&1 || yum makecache >/dev/null 2>&1
+            apt-get install -y $pkg >/dev/null 2>&1 || yum install -y $pkg -y >/dev/null 2>&1
         fi
     done
-    systemctl enable docker --now >/dev/null 2>&1 || service docker start || true
+    systemctl enable docker --now >/dev/null 2>&1 || service docker start
 }
 check_dep
 
 header() {
     clear
     echo "$LINE"
-    echo " $TITLE "
+    echo "$TITLE"
     echo "$LINE"
 }
 
+# ===== START SSH (Linux only) =====
+start_ssh() {
+    docker exec -d "$1" bash -c '
+        mkdir -p /var/run/sshd
+        ssh-keygen -A
+        [ -f /etc/ssh/sshd_config ] || echo -e "Port 22\nPermitRootLogin yes\nPasswordAuthentication yes\nUsePAM no" > /etc/ssh/sshd_config
+        sed -i "s/^#\?PermitRootLogin.*/PermitRootLogin yes/" /etc/ssh/sshd_config
+        sed -i "s/^#\?PasswordAuthentication.*/PasswordAuthentication yes/" /etc/ssh/sshd_config
+        nohup /usr/sbin/sshd -D >/dev/null 2>&1 &
+    '
+}
+
+# ===== LIST OS =====
 list_os() {
     echo "Pilih OS image:"
     echo " 1) debian:13"
@@ -58,88 +73,73 @@ list_os() {
     echo "18) opensuse/leap:latest"
     echo "19) oraclelinux:8"
     echo "20) amazonlinux:2"
-    echo "21) parrotsec/security:latest"
-    echo "22) gentoo/stage3:latest"
-    echo "23) clearlinux:latest"
+    echo "21) clearlinux:latest"
+    echo "22) parrotsec/security:latest"
+    echo "23) gentoo/stage3:latest"
 }
 
+# ===== INSTALL PKG =====
 install_pkg() {
-    docker exec -i $NAME bash -c "
-        if command -v apt-get >/dev/null 2>&1; then
-            apt-get update || true
-            apt-get install -y git curl wget sudo nano vim openssh-server shadow || true
-            apt-get install -y fastfetch || apt-get install -y neofetch || \
-              (git clone https://github.com/dylanaraps/neofetch /tmp/nf && cd /tmp/nf && make install) || true
-        elif command -v yum >/dev/null 2>&1; then
-            yum install -y git curl wget sudo nano vim openssh-server shadow-utils || true
-            yum install -y fastfetch || yum install -y neofetch || \
-              (git clone https://github.com/dylanaraps/neofetch /tmp/nf && cd /tmp/nf && make install) || true
-        elif command -v dnf >/dev/null 2>&1; then
-            dnf install -y git curl wget sudo nano vim openssh-server shadow-utils || true
-            dnf install -y fastfetch || dnf install -y neofetch || \
-              (git clone https://github.com/dylanaraps/neofetch /tmp/nf && cd /tmp/nf && make install) || true
-        elif command -v zypper >/dev/null 2>&1; then
-            zypper refresh || true
-            zypper install -y git curl wget sudo nano vim openssh shadow || true
-            zypper install -y fastfetch || zypper install -y neofetch || \
-              (git clone https://github.com/dylanaraps/neofetch /tmp/nf && cd /tmp/nf && make install) || true
-        elif command -v pacman >/dev/null 2>&1; then
-            pacman -Sy --noconfirm base-devel git curl wget sudo nano vim openssh shadow || true
-            pacman -Sy --noconfirm fastfetch || pacman -Sy --noconfirm neofetch || \
-              (git clone https://github.com/dylanaraps/neofetch /tmp/nf && cd /tmp/nf && make install) || true
-        elif command -v apk >/dev/null 2>&1; then
-            apk update || true
-            apk add bash sudo curl wget git nano vim openssh shadow || true
-            apk add fastfetch || apk add neofetch --repository=http://dl-cdn.alpinelinux.org/alpine/edge/testing || \
-              (git clone https://github.com/dylanaraps/neofetch /tmp/nf && cd /tmp/nf && make install) || true
-        elif command -v swupd >/dev/null 2>&1; then
-            swupd update || true
-            swupd bundle-add os-core-editors openssh-server git wget curl sudo sysadmin-basic || true
-            swupd bundle-add fastfetch || swupd bundle-add neofetch || \
-              (git clone https://github.com/dylanaraps/neofetch /tmp/nf && cd /tmp/nf && make install) || true
-        elif command -v emerge >/dev/null 2>&1; then
-            emerge-webrsync || true
-            emerge app-admin/sudo net-misc/openssh app-editors/vim git wget curl nano sys-apps/shadow || true
-            emerge app-misc/fastfetch || emerge app-misc/neofetch || \
-              (git clone https://github.com/dylanaraps/neofetch /tmp/nf && cd /tmp/nf && make install) || true
-        fi
+    case $IMAGE in
+        debian:*|ubuntu:*|kalilinux/*|parrotsec/*)
+            docker exec -i $NAME bash -c "
+                apt-get update &&
+                apt-get install -y openssh-server sudo nano vim curl wget git procps || true
+            "
+        ;;
+        centos:*|almalinux:*|rockylinux:*|oraclelinux:*|amazonlinux:*)
+            docker exec -i $NAME bash -c "
+                yum install -y openssh-server sudo nano vim curl wget git procps || true
+            "
+        ;;
+        alpine:*)
+            docker exec -i $NAME sh -c "
+                apk update &&
+                apk add bash sudo openssh curl wget git nano vim procps openssh-server || true
+            "
+        ;;
+        archlinux:*)
+            docker exec -i $NAME sh -c "
+                pacman -Sy --noconfirm openssh sudo nano vim curl wget git procps || true
+            "
+        ;;
+        fedora:*)
+            docker exec -i $NAME bash -c "
+                dnf install -y openssh-server sudo nano vim curl wget git procps || true
+            "
+        ;;
+        opensuse/*)
+            docker exec -i $NAME bash -c "
+                zypper refresh &&
+                zypper install -y openssh sudo nano vim curl wget git procps || true
+            "
+        ;;
+        clearlinux:*)
+            docker exec -i $NAME bash -c "
+                swupd update &&
+                swupd bundle-add openssh-server editors curl wget git sysadmin-basic || true
+            "
+        ;;
+        gentoo/*)
+            docker exec -i $NAME bash -c "
+                emerge-webrsync &&
+                emerge --quiet net-misc/openssh app-editors/nano app-editors/vim net-misc/curl net-misc/wget sys-process/procps sys-apps/sudo dev-vcs/git || true
+            "
+        ;;
+    esac
 
-        mkdir -p /var/run/sshd && ssh-keygen -A || true
-        [ ! -f /etc/ssh/sshd_config ] && \$(command -v sshd) -T > /etc/ssh/sshd_config || true
-        sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config || true
-        sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config || true
-    "
+    start_ssh $NAME
 }
 
+# ===== CONTROL & INFO =====
 list_vps() {
     echo "Daftar VPS Container:"
     docker ps -a --format "table {{.ID}}\t{{.Names}}\t{{.Status}}\t{{.Image}}"
 }
 
 info_vps() {
-    list_vps
     read -p "Masukkan nama VPS: " NAME
-
-    IP=$(curl -s ifconfig.me)
-    IMAGE=$(docker inspect -f '{{.Config.Image}}' $NAME)
-    USER=$(docker exec -i $NAME bash -c "whoami" 2>/dev/null || echo "root")
-    SSHPORT=$(docker inspect -f '{{(index (index .HostConfig.PortBindings "22/tcp") 0).HostPort}}' $NAME)
-    HTTPPORT=$(docker inspect -f '{{(index (index .HostConfig.PortBindings "80/tcp") 0).HostPort}}' $NAME)
-    HTTPSPORT=$(docker inspect -f '{{(index (index .HostConfig.PortBindings "443/tcp") 0).HostPort}}' $NAME)
-    POPULAR=$(docker port $NAME | grep -E "3000|3030|3300|8800|8000|8088|8070|8090|3070|8040" | sed 's/0.0.0.0://g' | awk '{print "       " $2 " -> " $1}')
-
-    echo "$LINE"
-    echo "   Info VPS Container"
-    echo "$LINE"
-    echo "Nama VPS   : $NAME"
-    echo "OS Image   : $IMAGE"
-    echo "User Login : $USER"
-    echo "Password   : (hidden)"
-    echo "SSH Port   : $SSHPORT"
-    echo "Web Ports  : $HTTPPORT (HTTP), $HTTPSPORT (HTTPS)"
-    echo -e "Popular    :\n$POPULAR"
-    echo "Login Cmd  : ssh $USER@$IP -p $SSHPORT"
-    echo "$LINE"
+    docker inspect $NAME
 }
 
 control_vps() {
@@ -152,9 +152,9 @@ control_vps() {
     echo "5) Info VPS"
     read -p "Pilihan: " act
     case $act in
-        1) docker start $NAME ;;
+        1) docker start $NAME && start_ssh $NAME ;;
         2) docker stop $NAME ;;
-        3) docker restart $NAME ;;
+        3) docker restart $NAME && start_ssh $NAME ;;
         4) docker rm -f $NAME ;;
         5) info_vps ;;
     esac
@@ -165,7 +165,7 @@ change_pass() {
     read -p "Nama VPS: " NAME
     read -s -p "Password baru: " NEWPASS
     echo
-    docker exec -i $NAME bash -c "echo 'root:$NEWPASS' | chpasswd"
+    docker exec -i $NAME bash -c "echo 'root:$NEWPASS' | chpasswd -m"
     echo "✅ Password berhasil diganti."
 }
 
@@ -178,6 +178,7 @@ change_limit() {
     echo "✅ Limit CPU/RAM berhasil diganti."
 }
 
+# ===== BUILD VPS =====
 build_vps() {
     list_os
     read -p "#? " os
@@ -202,17 +203,17 @@ build_vps() {
         18) IMAGE="opensuse/leap:latest" ;;
         19) IMAGE="oraclelinux:8" ;;
         20) IMAGE="amazonlinux:2" ;;
-        21) IMAGE="parrotsec/security:latest" ;;
-        22) IMAGE="gentoo/stage3:latest" ;;
-        23) IMAGE="clearlinux:latest" ;;
+        21) IMAGE="clearlinux:latest" ;;
+        22) IMAGE="parrotsec/security:latest" ;;
+        23) IMAGE="gentoo/stage3:latest" ;;
         *) echo "Pilihan salah"; return ;;
     esac
 
     read -p "Nama VPS: " NAME
-    SSHPORT=$(get_free_port 20000 25000)
-    read -p "Mode user [1=Root / 2=User biasa]: " MODE
     read -s -p "Password: " PASS
     echo
+    PORT=$(get_free_port)
+    read -p "Mode user [1=Root / 2=User biasa]: " MODE
     read -p "Limit CPU (contoh 1.5, kosong=tanpa limit): " LIMIT_CPU
     read -p "Limit RAM (contoh 1G, kosong=tanpa limit): " LIMIT_RAM
 
@@ -220,56 +221,50 @@ build_vps() {
     [[ -n "$LIMIT_CPU" ]] && OPTS="$OPTS --cpus=$LIMIT_CPU"
     [[ -n "$LIMIT_RAM" ]] && OPTS="$OPTS --memory=$LIMIT_RAM"
 
-    RAND80=$(get_free_port 26000 27000)
-    RAND443=$(get_free_port 28000 29000)
-
-    POPULAR_PORTS=(3000 3030 3300 8800 8000 8088 8070 8090 3070 8040)
-    POPULAR_MAPS=""
-    PORT_LIST=""
-    for P in "${POPULAR_PORTS[@]}"; do
-        HOST_PORT=$(get_free_port 30000 40000)
-        POPULAR_MAPS="$POPULAR_MAPS -p $HOST_PORT:$P"
-        PORT_LIST="$PORT_LIST\n       $HOST_PORT -> $P"
+    PORT_MAP="-p $PORT:22"
+    declare -A FORWARDED
+    for cport in 3000 3300 3030 8000 8800 8080 8700; do
+        hport=$(get_free_port)
+        PORT_MAP="$PORT_MAP -p $hport:$cport"
+        FORWARDED[$cport]=$hport
     done
 
-    docker run -dit --name "$NAME" \
-        -p $SSHPORT:22 -p $RAND80:80 -p $RAND443:443 \
-        $POPULAR_MAPS \
-        $OPTS --hostname "$NAME" \
-        --entrypoint /bin/bash $IMAGE -c "while true; do \$(command -v sshd) -D; sleep 5; done" || true
-
+    docker run -dit --name "$NAME" $PORT_MAP $OPTS --hostname "$NAME" $IMAGE /bin/sh || true
     install_pkg
 
     if [[ "$MODE" == "1" ]]; then
-        docker exec -i $NAME bash -c "echo 'root:$PASS' | chpasswd"
         USER="root"
+        docker exec -i $NAME bash -c "echo 'root:$PASS' | chpasswd -m"
     else
+        USER="user"
         docker exec -i $NAME bash -c "
-            useradd -m -s /bin/bash user &&
-            echo 'user:$PASS' | chpasswd &&
+            useradd -m -s /bin/bash user
+            echo 'user:$PASS' | chpasswd -m
             echo 'user ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
         "
-        USER="user"
     fi
+    start_ssh $NAME
 
     echo "$LINE"
-    echo "   VPS Berhasil Dibuat!"
+    echo "   VPS Linux Berhasil Dibuat!"
     echo "$LINE"
     echo "Nama VPS   : $NAME"
     echo "OS Image   : $IMAGE"
     echo "User Login : $USER"
     echo "Password   : $PASS"
-    echo "SSH Port   : $SSHPORT"
-    echo "Web Ports  : $RAND80 (HTTP), $RAND443 (HTTPS)"
-    echo -e "Popular    :$PORT_LIST"
+    echo "SSH Port   : $PORT"
     [[ -n "$LIMIT_CPU" ]] && echo "Limit CPU  : $LIMIT_CPU core"
     [[ -n "$LIMIT_RAM" ]] && echo "Limit RAM  : $LIMIT_RAM"
-    echo "Login Cmd  : ssh $USER@$(curl -s ifconfig.me) -p $SSHPORT"
+    echo "Login Cmd  : ssh $USER@$(curl -s ifconfig.me) -p $PORT"
+    echo ""
+    echo "Web Ports  :"
+    for cport in "${!FORWARDED[@]}"; do
+        echo "       ${FORWARDED[$cport]} -> $cport"
+    done
     echo "$LINE"
-    echo "Preview Stats:"
-    docker exec -it $NAME bash -c "fastfetch || neofetch || true"
 }
 
+# ===== MAIN MENU =====
 while true; do
     header
     echo "1) List OS"
