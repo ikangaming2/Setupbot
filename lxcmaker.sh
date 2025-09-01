@@ -3,6 +3,7 @@ trap 'echo "[WARNING] Error di baris $LINENO, lanjut..."' ERR
 
 LXC_DIR="/var/lib/lxc"
 SUBNET="10.0.3.0/24"
+PUB_IF="eth0"   # interface publik host
 
 menu() {
   clear
@@ -112,43 +113,39 @@ EOF
 
   # Port mapping
   INFOFILE="$LXC_DIR/$NAME.info"
-  PUBPORT_SSH=$(shuf -i 20000-40000 -n 1)
-  iptables -t nat -A PREROUTING -p tcp --dport $PUBPORT_SSH -j DNAT --to-destination $IP:22
-  iptables -A FORWARD -p tcp -d $IP --dport 22 -j ACCEPT
+  echo "Hostname : $NAME" > "$INFOFILE"
+  echo "OS       : $DISTRO $RELEASE" >> "$INFOFILE"
+  echo "CPU      : $CPU core(s)" >> "$INFOFILE"
+  echo "RAM      : $RAM" >> "$INFOFILE"
+  echo "Private  : $IP" >> "$INFOFILE"
+  echo "Public   : $PUBIP" >> "$INFOFILE"
+  echo "User     : root" >> "$INFOFILE"
+  echo "Password : $PASS" >> "$INFOFILE"
 
-  echo "SSH Port : $PUBPORT_SSH" > "$INFOFILE"
+  # SSH port random
+  PUBPORT_SSH=$(shuf -i 20000-40000 -n 1)
+  iptables -t nat -A PREROUTING -i $PUB_IF -p tcp --dport $PUBPORT_SSH -j DNAT --to-destination $IP:22
+  iptables -A FORWARD -p tcp -d $IP --dport 22 -j ACCEPT
+  echo "SSH Port : $PUBPORT_SSH" >> "$INFOFILE"
 
   # Forward web ports
   for P in 3000 8000 3300 8080 8800 3030; do
     PUBPORT=$(shuf -i 20000-40000 -n 1)
-    iptables -t nat -A PREROUTING -p tcp --dport $PUBPORT -j DNAT --to-destination $IP:$P
+    iptables -t nat -A PREROUTING -i $PUB_IF -p tcp --dport $PUBPORT -j DNAT --to-destination $IP:$P
     iptables -A FORWARD -p tcp -d $IP --dport $P -j ACCEPT
-    echo "Web Port $P -> $PUBPORT" >> "$INFOFILE"
+    echo "Web Port $P : $PUBPORT" >> "$INFOFILE"
   done
 
   netfilter-persistent save || true
-
-  cat > "$INFOFILE" <<EOF
-Hostname : $NAME
-OS       : $DISTRO $RELEASE
-CPU      : $CPU core(s)
-RAM      : $RAM
-Private  : $IP
-Public   : $PUBIP
-SSH Port : $PUBPORT_SSH
-User     : root
-Password : $PASS
-EOF
-
-  for P in 3000 8000 3300 8080 8800 3030; do
-    PUBPORT=$(grep "Web Port $P" "$INFOFILE" | awk '{print $5}')
-    echo "Web Port $P : $PUBPORT" >> "$INFOFILE"
-  done
 
   echo
   echo "=============================="
   cat "$INFOFILE"
   echo "=============================="
+  echo
+  echo "🔍 Cek iptables rules terkait VPS ini:"
+  iptables -t nat -vnL PREROUTING | grep $IP
+  iptables -vnL FORWARD | grep $IP
   read -p "Enter untuk lanjut..."
 }
 
@@ -165,10 +162,10 @@ delete_vps() {
   lxc-stop -n "$NAME" 2>/dev/null || true
   lxc-destroy -n "$NAME" -f
 
-  # Hapus rules iptables
+  # Hapus rules iptables berdasarkan info file
   for PORT in $(grep -Eo '[0-9]{5}' "$INFOFILE"); do
-    iptables -t nat -D PREROUTING -p tcp --dport $PORT -j DNAT --to-destination $IP:22 2>/dev/null || true
-    iptables -D FORWARD -p tcp -d $IP --dport 22 -j ACCEPT 2>/dev/null || true
+    iptables -t nat -D PREROUTING -i $PUB_IF -p tcp --dport $PORT -j DNAT --to-destination $IP 2>/dev/null || true
+    iptables -D FORWARD -p tcp -d $IP --dport $PORT -j ACCEPT 2>/dev/null || true
   done
 
   rm -f "$INFOFILE"
