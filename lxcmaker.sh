@@ -1,184 +1,193 @@
-#!/bin/bash
-set -e
+#!/usr/bin/env bash
+trap 'echo "[WARNING] Error di baris $LINENO, lanjut..."' ERR
 
-TITLE=" VPS LXC MAKER by NAUVAL "
-LINE=$(printf '═%.0s' {1..70})
+LXC_DIR="/var/lib/lxc"
+SUBNET="10.0.3.0/24"
 
-check_dep() {
-    if ! command -v lxc-create >/dev/null 2>&1; then
-        echo "⚙️ Menginstall LXC..."
-        apt-get update -y >/dev/null 2>&1
-        apt-get install -y lxc bridge-utils jq curl iptables >/dev/null 2>&1
-    fi
-}
-check_dep
+menu() {
+  clear
+  echo "=================================="
+  echo "   VPS MANAGER - LXC (by Nauval)  "
+  echo "=================================="
+  echo "1) Buat VPS Baru"
+  echo "2) Start VPS"
+  echo "3) Stop VPS"
+  echo "4) Hapus VPS"
+  echo "5) List VPS"
+  echo "6) Detail VPS"
+  echo "0) Keluar"
+  echo "=================================="
+  read -p "Pilih menu: " CHOICE
 
-header() {
-    clear
-    echo "$LINE"
-    printf "║%*s%*s║\n" $(((${#LINE}-${#TITLE})/2)) "$TITLE" $(((${#LINE}-${#TITLE}+1)/2)) ""
-    echo "$LINE"
-}
-
-list_os() {
-    echo "Pilih OS template:"
-    echo " 1) debian-13"
-    echo " 2) debian-12"
-    echo " 3) debian-11"
-    echo " 4) ubuntu-24.04"
-    echo " 5) ubuntu-22.04"
-    echo " 6) ubuntu-20.04"
-    echo " 7) centos-8"
-    echo " 8) centos-7"
-    echo " 9) alpine-latest"
-    echo "10) fedora-latest"
-    echo "11) opensuse-latest"
-    echo "12) rockylinux-9"
-    echo "13) almalinux-9"
-    echo "14) kalilinux-rolling"
+  case "$CHOICE" in
+    1) create_vps ;;
+    2) read -p "Nama VPS: " NAME; lxc-start -n "$NAME" -d; echo "✅ VPS $NAME started"; read -p "Enter untuk lanjut..." ;;
+    3) read -p "Nama VPS: " NAME; lxc-stop -n "$NAME"; echo "🛑 VPS $NAME stopped"; read -p "Enter untuk lanjut..." ;;
+    4) delete_vps ;;
+    5) lxc-ls --fancy; read -p "Enter untuk lanjut..." ;;
+    6) detail_vps ;;
+    0) exit 0 ;;
+    *) echo "Pilihan tidak valid"; sleep 2 ;;
+  esac
+  menu
 }
 
-list_vps() {
-    echo "Daftar VPS Container:"
-    lxc-ls --fancy
-}
+create_vps() {
+  echo "Pilih OS:"
+  echo "1) Ubuntu 20.04"
+  echo "2) Ubuntu 22.04"
+  echo "3) Ubuntu 24.04"
+  echo "4) Ubuntu 25.04"
+  echo "5) Debian 10"
+  echo "6) Debian 11"
+  echo "7) Debian 12"
+  echo "8) Debian 13"
+  echo "9) Kali Linux"
+  echo "10) Arch Linux"
+  read -p "Nomor OS: " OSNUM
 
-save_info() {
-    NAME=$1
-    INFO_FILE="/var/lib/vpsmaker/${NAME}.json"
-    mkdir -p /var/lib/vpsmaker
-    cat > "$INFO_FILE" <<EOF
-{
-  "name": "$NAME",
-  "template": "$TEMPLATE",
-  "user": "$USER",
-  "port": "$PORT",
-  "password": "$PASS",
-  "limit_cpu": "$LIMIT_CPU",
-  "limit_ram": "$LIMIT_RAM"
-}
+  case "$OSNUM" in
+    1) DISTRO="ubuntu"; RELEASE="focal" ;;
+    2) DISTRO="ubuntu"; RELEASE="jammy" ;;
+    3) DISTRO="ubuntu"; RELEASE="noble" ;;
+    4) DISTRO="ubuntu"; RELEASE="oracular" ;;
+    5) DISTRO="debian"; RELEASE="buster" ;;
+    6) DISTRO="debian"; RELEASE="bullseye" ;;
+    7) DISTRO="debian"; RELEASE="bookworm" ;;
+    8) DISTRO="debian"; RELEASE="trixie" ;;
+    9) DISTRO="kali"; RELEASE="rolling" ;;
+    10) DISTRO="archlinux"; RELEASE="current" ;;
+    *) echo "OS tidak valid"; return ;;
+  esac
+
+  read -p "Hostname VPS   : " NAME
+  read -p "CPU cores      : " CPU
+  read -p "RAM (contoh 2G): " RAM
+  read -sp "Password root  : " PASS; echo
+
+  apt-get update -y || true
+  apt-get install -y lxc lxc-templates bridge-utils debootstrap iptables-persistent curl jq || true
+
+  sysctl -w net.ipv4.ip_forward=1
+  grep -q "net.ipv4.ip_forward=1" /etc/sysctl.conf || echo "net.ipv4.ip_forward=1" >> /etc/sysctl.conf
+
+  iptables -t nat -C POSTROUTING -s $SUBNET -j MASQUERADE 2>/dev/null || iptables -t nat -A POSTROUTING -s $SUBNET -j MASQUERADE
+  iptables -C FORWARD -s $SUBNET -j ACCEPT 2>/dev/null || iptables -A FORWARD -s $SUBNET -j ACCEPT
+  iptables -C FORWARD -d $SUBNET -j ACCEPT 2>/dev/null || iptables -A FORWARD -d $SUBNET -j ACCEPT
+  netfilter-persistent save || true
+
+  echo ">>> Membuat container $NAME ($DISTRO $RELEASE)"
+  lxc-create -n "$NAME" -t download -- -d "$DISTRO" -r "$RELEASE" -a amd64
+  lxc-start -n "$NAME" -d
+  sleep 5
+
+  IP=$(lxc-info -n "$NAME" -iH | head -n1)
+  [[ -z "$IP" ]] && { echo "Gagal ambil IP"; return; }
+
+  # Setup SSH + paket dasar
+  lxc-attach -n "$NAME" -- bash -c "
+    apt-get update -o Acquire::ForceIPv4=true -y || true
+    apt-get install -y openssh-server sudo nano curl wget unzip zip htop net-tools || true
+    echo 'root:$PASS' | chpasswd
+    sed -i 's/^#\?Port.*/Port 22/' /etc/ssh/sshd_config
+    sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
+    sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
+    grep -q '^ListenAddress 0.0.0.0' /etc/ssh/sshd_config || echo 'ListenAddress 0.0.0.0' >> /etc/ssh/sshd_config
+    grep -q '^ListenAddress ::' /etc/ssh/sshd_config || echo 'ListenAddress ::' >> /etc/ssh/sshd_config
+    systemctl enable ssh || true
+    systemctl restart ssh || true
+    hostnamectl set-hostname $NAME || true
+  "
+
+  # Atur limit CPU & RAM
+  CONF="$LXC_DIR/$NAME/config"
+  cat >> "$CONF" <<EOF
+
+### Resource limits ###
+lxc.cgroup2.cpuset.cpus = 0-$(($CPU-1))
+lxc.cgroup2.memory.max = $RAM
 EOF
+
+  PUBIP=$(curl -s4 ifconfig.me || curl -s4 api.ipify.org)
+
+  # Port mapping
+  INFOFILE="$LXC_DIR/$NAME.info"
+  PUBPORT_SSH=$(shuf -i 20000-40000 -n 1)
+  iptables -t nat -A PREROUTING -p tcp --dport $PUBPORT_SSH -j DNAT --to-destination $IP:22
+  iptables -A FORWARD -p tcp -d $IP --dport 22 -j ACCEPT
+
+  echo "SSH Port : $PUBPORT_SSH" > "$INFOFILE"
+
+  # Forward web ports
+  for P in 3000 8000 3300 8080 8800 3030; do
+    PUBPORT=$(shuf -i 20000-40000 -n 1)
+    iptables -t nat -A PREROUTING -p tcp --dport $PUBPORT -j DNAT --to-destination $IP:$P
+    iptables -A FORWARD -p tcp -d $IP --dport $P -j ACCEPT
+    echo "Web Port $P -> $PUBPORT" >> "$INFOFILE"
+  done
+
+  netfilter-persistent save || true
+
+  cat > "$INFOFILE" <<EOF
+Hostname : $NAME
+OS       : $DISTRO $RELEASE
+CPU      : $CPU core(s)
+RAM      : $RAM
+Private  : $IP
+Public   : $PUBIP
+SSH Port : $PUBPORT_SSH
+User     : root
+Password : $PASS
+EOF
+
+  for P in 3000 8000 3300 8080 8800 3030; do
+    PUBPORT=$(grep "Web Port $P" "$INFOFILE" | awk '{print $5}')
+    echo "Web Port $P : $PUBPORT" >> "$INFOFILE"
+  done
+
+  echo
+  echo "=============================="
+  cat "$INFOFILE"
+  echo "=============================="
+  read -p "Enter untuk lanjut..."
 }
 
-add_nat() {
-    NAME=$1
-    PORT=$2
-    IP=$(lxc-info -n $NAME -iH)
-    iptables -t nat -A PREROUTING -p tcp --dport $PORT -j DNAT --to-destination $IP:22
-    iptables -t nat -A POSTROUTING -s $IP -j MASQUERADE
+delete_vps() {
+  read -p "Nama VPS yang mau dihapus: " NAME
+  INFOFILE="$LXC_DIR/$NAME.info"
+  if [[ ! -f "$INFOFILE" ]]; then
+    echo "❌ Info VPS $NAME tidak ditemukan"
+    sleep 2
+    return
+  fi
+
+  IP=$(lxc-info -n "$NAME" -iH 2>/dev/null)
+  lxc-stop -n "$NAME" 2>/dev/null || true
+  lxc-destroy -n "$NAME" -f
+
+  # Hapus rules iptables
+  for PORT in $(grep -Eo '[0-9]{5}' "$INFOFILE"); do
+    iptables -t nat -D PREROUTING -p tcp --dport $PORT -j DNAT --to-destination $IP:22 2>/dev/null || true
+    iptables -D FORWARD -p tcp -d $IP --dport 22 -j ACCEPT 2>/dev/null || true
+  done
+
+  rm -f "$INFOFILE"
+  netfilter-persistent save || true
+  echo "🗑️ VPS $NAME sudah dihapus"
+  sleep 2
 }
 
-build_vps() {
-    list_os
-    read -p "#? " os
-    case $os in
-        1) TEMPLATE="debian" REL="bookworm" ;;
-        2) TEMPLATE="debian" REL="bullseye" ;;
-        3) TEMPLATE="debian" REL="buster" ;;
-        4) TEMPLATE="ubuntu" REL="noble" ;;
-        5) TEMPLATE="ubuntu" REL="jammy" ;;
-        6) TEMPLATE="ubuntu" REL="focal" ;;
-        7) TEMPLATE="centos" REL="8" ;;
-        8) TEMPLATE="centos" REL="7" ;;
-        9) TEMPLATE="alpine" REL="3.20" ;;
-        10) TEMPLATE="fedora" REL="latest" ;;
-        11) TEMPLATE="opensuse" REL="latest" ;;
-        12) TEMPLATE="rockylinux" REL="9" ;;
-        13) TEMPLATE="almalinux" REL="9" ;;
-        14) TEMPLATE="kalilinux" REL="rolling" ;;
-        *) echo "Pilihan salah"; return ;;
-    esac
-
-    read -p "Nama VPS: " NAME
-    read -p "Port SSH: " PORT
-    read -p "Mode user [1=Root / 2=User biasa]: " MODE
-    read -s -p "Password: " PASS
-    echo
-    read -p "Limit CPU (contoh 2, kosong=tanpa limit): " LIMIT_CPU
-    read -p "Limit RAM (contoh 1G, kosong=tanpa limit): " LIMIT_RAM
-
-    echo "📦 Membuat container..."
-    lxc-create -n "$NAME" -t download -- -d $TEMPLATE -r $REL -a amd64
-
-    # Set resource limit
-    CONF="/var/lib/lxc/$NAME/config"
-    [[ -n "$LIMIT_CPU" ]] && echo "lxc.cgroup2.cpuset.cpus = 0-$((LIMIT_CPU-1))" >> $CONF
-    [[ -n "$LIMIT_RAM" ]] && echo "lxc.cgroup2.memory.max = $LIMIT_RAM" >> $CONF
-
-    # NAT networking
-    BRIDGE="lxcbr0"
-    if ! ip link show $BRIDGE >/dev/null 2>&1; then
-        lxc-net start
-    fi
-    echo "lxc.net.0.type = veth" >> $CONF
-    echo "lxc.net.0.link = $BRIDGE" >> $CONF
-    echo "lxc.net.0.flags = up" >> $CONF
-
-    lxc-start -n "$NAME"
-    sleep 8
-
-    # Setup SSH & password
-    if [[ "$MODE" == "1" ]]; then
-        lxc-attach -n "$NAME" -- bash -c "echo 'root:$PASS' | chpasswd; apt-get update; apt-get install -y openssh-server sudo"
-        USER="root"
-    else
-        lxc-attach -n "$NAME" -- bash -c "useradd -m -s /bin/bash user; echo 'user:$PASS' | chpasswd; echo 'user ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers; apt-get update; apt-get install -y openssh-server sudo"
-        USER="user"
-    fi
-    lxc-attach -n "$NAME" -- systemctl enable ssh || true
-    lxc-attach -n "$NAME" -- service ssh restart || true
-
-    add_nat "$NAME" "$PORT"
-    save_info "$NAME"
-
-    echo
-    echo "$LINE"
-    echo "   VPS Berhasil Dibuat!"
-    echo "$LINE"
-    echo "Nama VPS   : $NAME"
-    echo "OS Image   : $TEMPLATE-$REL"
-    echo "User Login : $USER"
-    echo "Password   : $PASS"
-    echo "SSH Port   : $PORT"
-    [[ -n "$LIMIT_CPU" ]] && echo "Limit CPU  : $LIMIT_CPU core"
-    [[ -n "$LIMIT_RAM" ]] && echo "Limit RAM  : $LIMIT_RAM"
-    echo "Login Cmd  : ssh $USER@$(curl -s ifconfig.me) -p $PORT"
-    echo "$LINE"
-    echo
+detail_vps() {
+  read -p "Nama VPS: " NAME
+  INFOFILE="$LXC_DIR/$NAME.info"
+  if [[ -f "$INFOFILE" ]]; then
+    echo "=============================="
+    cat "$INFOFILE"
+    echo "=============================="
+  else
+    echo "❌ Info VPS $NAME tidak ditemukan"
+  fi
+  read -p "Enter untuk lanjut..."
 }
 
-control_vps() {
-    list_vps
-    read -p "Masukkan nama VPS: " NAME
-    echo "1) Start"
-    echo "2) Stop"
-    echo "3) Restart"
-    echo "4) Hapus"
-    read -p "Pilihan: " act
-    case $act in
-        1) lxc-start -n $NAME ;;
-        2) lxc-stop -n $NAME ;;
-        3) lxc-stop -n $NAME; lxc-start -n $NAME ;;
-        4) lxc-destroy -n $NAME ;;
-    esac
-}
-
-while true; do
-    header
-    echo "1) List OS"
-    echo "2) List VPS"
-    echo "3) Build VPS"
-    echo "4) Control VPS"
-    echo "5) Exit"
-    echo "$LINE"
-    read -p "Pilih menu: " m
-   
- case $m in
-        1) list_os ;;
-        2) list_vps ;;
-        3) build_vps ;;
-        4) control_vps ;;
-        5) exit ;;
-    esac
-    read -p "Tekan Enter untuk kembali ke menu..."
-done
+menu
