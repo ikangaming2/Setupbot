@@ -86,8 +86,7 @@ create_vps() {
   read -p "CPU cores      : " CPU
   read -p "RAM (contoh 2G): " RAM
   read -sp "Password root  : " PASS; echo
-
-  apt-get update -y || true
+  
   apt-get install -y lxc lxc-templates bridge-utils debootstrap iptables-persistent curl jq || true
 
   sysctl -w net.ipv4.ip_forward=1
@@ -106,7 +105,6 @@ create_vps() {
   IP=$(lxc-info -n "$NAME" -iH | head -n1)
 
   lxc-attach -n "$NAME" -- bash -c "
-    apt-get update -o Acquire::ForceIPv4=true -y || true
     apt-get install -y openssh-server sudo nano curl wget unzip zip htop net-tools || true
     echo 'root:$PASS' | chpasswd
     sed -i 's/^#\?Port.*/Port 22/' /etc/ssh/sshd_config
