@@ -15,6 +15,11 @@ grep -q "^Port 22" "$SSHD_CONFIG" || echo "Port 22" >> "$SSHD_CONFIG"
 grep -q "^PermitRootLogin yes" "$SSHD_CONFIG" || echo "PermitRootLogin yes" >> "$SSHD_CONFIG"
 grep -q "^PasswordAuthentication yes" "$SSHD_CONFIG" || echo "PasswordAuthentication yes" >> "$SSHD_CONFIG"
 
+# Pastikan Subsystem SFTP ada
+if ! grep -q "^Subsystem\s\+sftp" "$SSHD_CONFIG"; then
+    echo "Subsystem sftp /usr/lib/openssh/sftp-server" >> "$SSHD_CONFIG"
+fi
+
 # Restart SSH service
 systemctl restart sshd
 
