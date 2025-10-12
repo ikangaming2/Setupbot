@@ -1,6 +1,6 @@
 #!/bin/bash
 
-IFACE="vmbr0"
+IFACE="ens3"
 RANGE_NORMAL_START=2000
 RANGE_NORMAL_END=5000
 RANGE_MC_START=20000       # Khusus Minecraft → publik 5 digit
