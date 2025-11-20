@@ -11,9 +11,10 @@ mkdir -p "$(dirname "$DB_FILE")"
 mkdir -p "$(dirname "$LOG_FILE")"
 touch "$DB_FILE" "$LOG_FILE"
 
-detect_iface() { ip route get 1.1.1.1 2>/dev/null | awk '{print $5; exit}'; }
-detect_public_ip() { curl -s https://ifconfig.me || curl -s https://api.ipify.org; }
-
+detect_iface() { ip -4 route get 1.1.1.1 2>/dev/null | awk '{print $5; exit}'; }
+detect_public_ip() {
+  curl -4 -s https://ifconfig.me || curl -4 -s https://api.ipify.org
+}
 find_random_free_port() {
   local start=$1
   local end=$2
