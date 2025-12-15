@@ -3,13 +3,29 @@ set -euo pipefail
 
 echo "==========================================="
 echo "   🌟 Nauval Proxmox VE Installer 🌟"
-echo "   No-Subscription + SSL Fix + vmbr1 + NAT "
+echo "   No-Subscription + SSL Fix + NAT"
 echo "==========================================="
 sleep 2
+
+# Pastikan OS Debian
+if ! grep -qi "debian" /etc/os-release; then
+    echo "❌ Script ini hanya untuk Debian."
+    exit 1
+fi
 
 echo "🚀 Update sistem..."
 apt update && apt upgrade -y
 apt install curl wget gnupg2 ca-certificates -y
+
+echo "🌍 Deteksi IP publik..."
+PUB_IP=$(curl -4 -s ifconfig.me)
+HOSTNAME=$(hostname)
+
+echo "✅ Hostname: $HOSTNAME"
+echo "✅ IP publik: $PUB_IP"
+
+echo "🔧 Patch template cloud-init hosts.debian.tmpl..."
+sed -i "s/^127\.0\.1\.1.*/$PUB_IP {{fqdn}} {{hostname}}/" /etc/cloud/templates/hosts.debian.tmpl
 
 echo "📡 Tambahkan repository Proxmox VE (no-subscription)..."
 echo "deb http://download.proxmox.com/debian/pve bookworm pve-no-subscription" \
@@ -24,10 +40,6 @@ apt update
 
 echo "🖥️ Install kernel Proxmox..."
 apt install proxmox-default-kernel -y
-
-echo "⚡ Reboot diperlukan setelah kernel terpasang."
-echo "Tekan ENTER untuk lanjut install paket Proxmox VE (atau Ctrl+C untuk reboot dulu)."
-read
 
 echo "🛠️ Install paket Proxmox VE..."
 apt install proxmox-ve postfix open-iscsi -y
@@ -53,18 +65,11 @@ iface vmbr1 inet static
     bridge-fd 0
 EOF
 
+echo "⚡ Aktifkan ulang networking agar vmbr1 langsung hidup..."
+systemctl restart networking
+
 echo "🔧 Setup NAT untuk vmbr1..."
 PUB_IFACE=$(ip route | awk '/default/ {print $5}' | head -n1)
-if [[ -z "$PUB_IFACE" ]]; then
-    echo "❌ Tidak bisa deteksi interface publik."
-    exit 1
-fi
-
-PUB_IP=$(curl -4 -s ifconfig.me)
-
-echo "✅ Interface publik: $PUB_IFACE"
-echo "✅ IP publik terdeteksi: $PUB_IP"
-
 VM_IFACE="vmbr1"
 VM_SUBNET="192.168.11.0/24"
 
@@ -88,5 +93,13 @@ fi
 echo "💾 Simpan rules..."
 netfilter-persistent save
 
-echo "🎉 Proxmox VE terpasang, vmbr1 dibuat, NAT aktif."
+echo "🔑 Regenerate SSL cert Proxmox..."
+pvecm updatecerts -f || true
+systemctl restart pveproxy || true
+
+echo "🎉 Proxmox VE terpasang, vmbr1 dibuat & aktif, NAT jalan."
 echo "🌍 Akses GUI: https://$PUB_IP:8006"
+
+echo "🔄 Reboot otomatis dalam 5 detik..."
+sleep 5
+reboot
