@@ -60,9 +60,11 @@ if [[ -z "$PUB_IFACE" ]]; then
     exit 1
 fi
 
-PUB_IP=$(ip -4 addr show dev "$PUB_IFACE" | awk '/inet / {print $2}' | cut -d/ -f1 | head -n1)
+PUB_IP=$(curl -4 -s ifconfig.me)
 
-echo "✅ Interface publik: $PUB_IFACE ($PUB_IP)"
+echo "✅ Interface publik: $PUB_IFACE"
+echo "✅ IP publik terdeteksi: $PUB_IP"
+
 VM_IFACE="vmbr1"
 VM_SUBNET="192.168.11.0/24"
 
