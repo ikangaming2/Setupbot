@@ -3,7 +3,7 @@ set -euo pipefail
 
 echo "==========================================="
 echo "   🌟 Nauval Proxmox VE Installer 🌟"
-echo "   No-Subscription + SSL Fix + NAT"
+echo "   No-Subscription + SSL Fix + NAT setup"
 echo "==========================================="
 sleep 2
 
@@ -24,8 +24,21 @@ HOSTNAME=$(hostname)
 echo "✅ Hostname: $HOSTNAME"
 echo "✅ IP publik: $PUB_IP"
 
-echo "🔧 Patch template cloud-init hosts.debian.tmpl..."
-sed -i "s/^127\.0\.1\.1.*/$PUB_IP {{fqdn}} {{hostname}}/" /etc/cloud/templates/hosts.debian.tmpl
+echo "🔧 Perbaiki mapping hostname..."
+if [ -f /etc/cloud/templates/hosts.debian.tmpl ]; then
+    # Patch template cloud-init jika ada
+    sed -i "s/^127\.0\.1\.1.*/$PUB_IP {{fqdn}} {{hostname}}/" /etc/cloud/templates/hosts.debian.tmpl
+elif [ -f /etc/cloud/cloud.cfg ]; then
+    # Disable manage_etc_hosts agar tidak overwrite
+    sed -i 's/manage_etc_hosts: true/manage_etc_hosts: false/' /etc/cloud/cloud.cfg || true
+    # Tambahkan langsung ke /etc/hosts
+    sed -i "/$HOSTNAME/d" /etc/hosts
+    echo "$PUB_IP $HOSTNAME" >> /etc/hosts
+else
+    # Kalau cloud-init tidak ada sama sekali → langsung patch /etc/hosts
+    sed -i "/$HOSTNAME/d" /etc/hosts
+    echo "$PUB_IP $HOSTNAME" >> /etc/hosts
+fi
 
 echo "📡 Tambahkan repository Proxmox VE (no-subscription)..."
 echo "deb http://download.proxmox.com/debian/pve bookworm pve-no-subscription" \
