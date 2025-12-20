@@ -1,13 +1,14 @@
 #!/bin/bash
 
-# --- Fungsi pendukung minimal ---
+# ================================
+#  NAT PORT FORWARDING ANTI NABRAK
+# ================================
+
 detect_iface() {
-  # ambil interface default dari route
   ip route | awk '/default/ {print $5; exit}'
 }
 
 detect_public_ip() {
-  # ambil IP publik dari layanan eksternal
   curl -s ifconfig.me
 }
 
@@ -20,10 +21,24 @@ find_random_free_port() {
   local END=$2
   while :; do
     local PORT=$((RANDOM % (END-START+1) + START))
-    if ! ss -ltn | awk '{print $4}' | grep -q ":$PORT$"; then
-      echo $PORT
-      return
+
+    # Cek kalau port sudah dipakai service
+    if ss -ltn | awk '{print $4}' | grep -q ":$PORT$"; then
+      continue
     fi
+    
+    # Cek kalau port sudah ada di NAT rules
+    if iptables -t nat -L PREROUTING -n | grep -q ":$PORT "; then
+      continue
+    fi
+    
+    # Cek kalau sudah tercatat di DB
+    if grep -q ",$PORT," "$DB_FILE" 2>/dev/null; then
+      continue
+    fi
+
+    echo $PORT
+    return
   done
 }
 
@@ -34,7 +49,9 @@ save_rules() {
   fi
 }
 
-# --- Variabel utama ---
+# ================================
+# VAR
+# ================================
 DB_FILE="/etc/portsetup.db"
 RANGE_NORMAL_START=1000
 RANGE_NORMAL_END=1500
@@ -45,19 +62,19 @@ IFACE=$(detect_iface)
 PUBLIC_IP=$(detect_public_ip)
 TARGET_IP="$1"
 
-# --- Validasi argumen ---
+# ================================
+# VALIDASI
+# ================================
 if [ -z "$TARGET_IP" ]; then
   echo "Usage: $0 <IP-privat>"
   exit 1
 fi
 
-# Validasi format IPv4
 if ! [[ "$TARGET_IP" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
   echo "Format IP tidak valid"
   exit 1
 fi
 
-# Validasi apakah IP termasuk privat
 if [[ "$TARGET_IP" =~ ^10\. ]] || \
    [[ "$TARGET_IP" =~ ^192\.168\. ]] || \
    ([[ "$TARGET_IP" =~ ^172\. ]] && \
@@ -69,16 +86,22 @@ else
   exit 1
 fi
 
-# --- Port forwarding ---
 PORTS_NORMAL=(22 3000 3300 4000 5000 5173 5432 6379 8000 8080 8800 8888 3030)
 PORT_MC=25565
 
 echo "Interface: $IFACE | IP Publik: $PUBLIC_IP"
 
+# ================================
+# PORT NORMAL
+# ================================
 for TARGET_PORT in "${PORTS_NORMAL[@]}"; do
   FREE_PORT=$(find_random_free_port $RANGE_NORMAL_START $RANGE_NORMAL_END)
   [ -z "$FREE_PORT" ] && continue
-  if grep -q "$TARGET_IP,$TARGET_PORT" "$DB_FILE" 2>/dev/null; then continue; fi
+  
+  # Cek DB prevent duplicate IP+PORT
+  if grep -q "$TARGET_IP,$TARGET_PORT" "$DB_FILE" 2>/dev/null; then 
+    continue
+  fi
 
   iptables -t nat -A PREROUTING -i "$IFACE" -p tcp --dport "$FREE_PORT" -j DNAT --to-destination "$TARGET_IP:$TARGET_PORT"
   iptables -A FORWARD -p tcp -d "$TARGET_IP" --dport "$TARGET_PORT" -j ACCEPT
@@ -90,6 +113,9 @@ for TARGET_PORT in "${PORTS_NORMAL[@]}"; do
   echo "$PUBLIC_IP:$FREE_PORT → $TARGET_IP:$TARGET_PORT"
 done
 
+# ================================
+# MINECRAFT PORT
+# ================================
 FREE_PORT=$(find_random_free_port $RANGE_MC_START $RANGE_MC_END)
 if [ -n "$FREE_PORT" ]; then
   iptables -t nat -A PREROUTING -i "$IFACE" -p tcp --dport "$FREE_PORT" -j DNAT --to-destination "$TARGET_IP:$PORT_MC"
