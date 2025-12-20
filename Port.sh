@@ -54,7 +54,7 @@ save_rules() {
 # ================================
 DB_FILE="/etc/portsetup.db"
 RANGE_NORMAL_START=1000
-RANGE_NORMAL_END=1500
+RANGE_NORMAL_END=2500
 RANGE_MC_START=10000
 RANGE_MC_END=10500
 
