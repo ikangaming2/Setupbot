@@ -70,14 +70,14 @@ if [ -z "$TARGET_IP" ]; then
   exit 1
 fi
 
-if ! [[ "$TARGET_IP" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+if ! [[ "$TARGET_IP" =~ ^([0-9]{1,3}.){3}[0-9]{1,3}$ ]]; then
   echo "Format IP tidak valid"
   exit 1
 fi
 
-if [[ "$TARGET_IP" =~ ^10\. ]] || \
-   [[ "$TARGET_IP" =~ ^192\.168\. ]] || \
-   ([[ "$TARGET_IP" =~ ^172\. ]] && \
+if [[ "$TARGET_IP" =~ ^10. ]] || \
+   [[ "$TARGET_IP" =~ ^192.168. ]] || \
+   ([[ "$TARGET_IP" =~ ^172. ]] && \
     [[ "$(echo "$TARGET_IP" | cut -d. -f2)" -ge 16 ]] && \
     [[ "$(echo "$TARGET_IP" | cut -d. -f2)" -le 31 ]]); then
   echo "IP privat valid: $TARGET_IP"
@@ -91,18 +91,27 @@ PORT_MC=25565
 
 echo "Interface: $IFACE | IP Publik: $PUBLIC_IP"
 
+touch "$DB_FILE"
+
 # ================================
 # PORT NORMAL
 # ================================
 for TARGET_PORT in "${PORTS_NORMAL[@]}"; do
-  FREE_PORT=$(find_random_free_port $RANGE_NORMAL_START $RANGE_NORMAL_END)
-  [ -z "$FREE_PORT" ] && continue
-  
-  # Cek DB prevent duplicate IP+PORT
-  if grep -q "$TARGET_IP,$TARGET_PORT" "$DB_FILE" 2>/dev/null; then 
+  # Cek apakah mapping IP+TARGET_PORT sudah ada di DB
+  # Format: PUBLIC_IP,FREE_PORT,TARGET_IP,TARGET_PORT,IFACE
+  EXIST_LINE=$(grep ",$TARGET_IP,$TARGET_PORT," "$DB_FILE" 2>/dev/null | head -n1)
+  if [ -n "$EXIST_LINE" ]; then
+    # Sudah ada, tinggal echo mapping yang lama
+    EXIST_FREE_PORT=$(echo "$EXIST_LINE" | cut -d',' -f2)
+    echo "$PUBLIC_IP:$EXIST_FREE_PORT → $TARGET_IP:$TARGET_PORT (existing)"
     continue
   fi
 
+  # Kalau belum ada, baru cari FREE_PORT baru
+  FREE_PORT=$(find_random_free_port $RANGE_NORMAL_START $RANGE_NORMAL_END)
+  [ -z "$FREE_PORT" ] && continue
+
+  # Tambah rule NAT & FORWARD
   iptables -t nat -A PREROUTING -i "$IFACE" -p tcp --dport "$FREE_PORT" -j DNAT --to-destination "$TARGET_IP:$TARGET_PORT"
   iptables -A FORWARD -p tcp -d "$TARGET_IP" --dport "$TARGET_PORT" -j ACCEPT
   iptables -A FORWARD -p tcp -s "$TARGET_IP" --sport "$TARGET_PORT" -j ACCEPT
@@ -110,22 +119,29 @@ for TARGET_PORT in "${PORTS_NORMAL[@]}"; do
 
   echo "$PUBLIC_IP,$FREE_PORT,$TARGET_IP,$TARGET_PORT,$IFACE" >> "$DB_FILE"
   log_action "ADD $PUBLIC_IP:$FREE_PORT → $TARGET_IP:$TARGET_PORT"
-  echo "$PUBLIC_IP:$FREE_PORT → $TARGET_IP:$TARGET_PORT"
+  echo "$PUBLIC_IP:$FREE_PORT → $TARGET_IP:$TARGET_PORT (new)"
 done
 
 # ================================
 # MINECRAFT PORT
 # ================================
-FREE_PORT=$(find_random_free_port $RANGE_MC_START $RANGE_MC_END)
-if [ -n "$FREE_PORT" ]; then
-  iptables -t nat -A PREROUTING -i "$IFACE" -p tcp --dport "$FREE_PORT" -j DNAT --to-destination "$TARGET_IP:$PORT_MC"
-  iptables -A FORWARD -p tcp -d "$TARGET_IP" --dport "$PORT_MC" -j ACCEPT
-  iptables -A FORWARD -p tcp -s "$TARGET_IP" --sport "$PORT_MC" -j ACCEPT
-  iptables -t nat -A POSTROUTING -s "$TARGET_IP" -o "$IFACE" -j MASQUERADE
+# Cek dulu kalau mapping MC sudah ada
+EXIST_LINE_MC=$(grep ",$TARGET_IP,$PORT_MC," "$DB_FILE" 2>/dev/null | head -n1)
+if [ -n "$EXIST_LINE_MC" ]; then
+  EXIST_FREE_PORT_MC=$(echo "$EXIST_LINE_MC" | cut -d',' -f2)
+  echo "$PUBLIC_IP:$EXIST_FREE_PORT_MC → $TARGET_IP:$PORT_MC (existing)"
+else
+  FREE_PORT=$(find_random_free_port $RANGE_MC_START $RANGE_MC_END)
+  if [ -n "$FREE_PORT" ]; then
+    iptables -t nat -A PREROUTING -i "$IFACE" -p tcp --dport "$FREE_PORT" -j DNAT --to-destination "$TARGET_IP:$PORT_MC"
+    iptables -A FORWARD -p tcp -d "$TARGET_IP" --dport "$PORT_MC" -j ACCEPT
+    iptables -A FORWARD -p tcp -s "$TARGET_IP" --sport "$PORT_MC" -j ACCEPT
+    iptables -t nat -A POSTROUTING -s "$TARGET_IP" -o "$IFACE" -j MASQUERADE
 
-  echo "$PUBLIC_IP,$FREE_PORT,$TARGET_IP,$PORT_MC,$IFACE" >> "$DB_FILE"
-  log_action "ADD $PUBLIC_IP:$FREE_PORT → $TARGET_IP:$PORT_MC"
-  echo "$PUBLIC_IP:$FREE_PORT → $TARGET_IP:$PORT_MC"
+    echo "$PUBLIC_IP,$FREE_PORT,$TARGET_IP,$PORT_MC,$IFACE" >> "$DB_FILE"
+    log_action "ADD $PUBLIC_IP:$FREE_PORT → $TARGET_IP:$PORT_MC"
+    echo "$PUBLIC_IP:$FREE_PORT → $TARGET_IP:$PORT_MC (new)"
+  fi
 fi
 
 save_rules
