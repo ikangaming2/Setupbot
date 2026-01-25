@@ -1,44 +1,81 @@
 #!/bin/bash
+set -e
 
 SSHD_CONFIG="/etc/ssh/sshd_config"
+SSHD_DIR="/etc/ssh/sshd_config.d"
+BACKUP_SUFFIX="$(date +%F_%H-%M-%S)"
 
-# Pastikan openssh-server terinstall
-if ! dpkg -l | grep -q openssh-server; then
-    echo "Menginstall openssh-server..."
-    apt update && apt install -y openssh-server
+echo "[*] Detecting OS & package manager..."
+
+# Detect package manager
+if command -v apt >/dev/null 2>&1; then
+    PKG_INSTALL="apt update && apt install -y openssh-server"
+elif command -v dnf >/dev/null 2>&1; then
+    PKG_INSTALL="dnf install -y openssh-server"
+elif command -v yum >/dev/null 2>&1; then
+    PKG_INSTALL="yum install -y openssh-server"
+else
+    echo "[!] Package manager tidak dikenali"
+    exit 1
 fi
 
-# Pastikan file konfigurasi ada
-if [ ! -f "$SSHD_CONFIG" ]; then
-    echo "File $SSHD_CONFIG tidak ditemukan, membuat default..."
-    touch "$SSHD_CONFIG"
+# Install openssh-server if missing
+if ! command -v sshd >/dev/null 2>&1; then
+    echo "[*] Installing openssh-server..."
+    eval "$PKG_INSTALL"
 fi
 
-# Backup dulu
-cp "$SSHD_CONFIG" "${SSHD_CONFIG}.bak.$(date +%s)"
-
-# Pastikan opsi yang dibutuhkan aktif
-sed -i 's/^#\?\s*Port .*/Port 22/' "$SSHD_CONFIG"
-sed -i 's/^#\?\s*PermitRootLogin .*/PermitRootLogin yes/' "$SSHD_CONFIG"
-sed -i 's/^#\?\s*PasswordAuthentication .*/PasswordAuthentication yes/' "$SSHD_CONFIG"
-
-# Tambahkan jika belum ada
-grep -q "^Port 22" "$SSHD_CONFIG" || echo "Port 22" >> "$SSHD_CONFIG"
-grep -q "^PermitRootLogin yes" "$SSHD_CONFIG" || echo "PermitRootLogin yes" >> "$SSHD_CONFIG"
-grep -q "^PasswordAuthentication yes" "$SSHD_CONFIG" || echo "PasswordAuthentication yes" >> "$SSHD_CONFIG"
-
-# Pastikan Subsystem SFTP ada
-if ! grep -q "^Subsystem\s\+sftp" "$SSHD_CONFIG"; then
-    echo "Subsystem sftp /usr/lib/openssh/sftp-server" >> "$SSHD_CONFIG"
+# Backup sshd_config
+if [ -f "$SSHD_CONFIG" ]; then
+    cp "$SSHD_CONFIG" "${SSHD_CONFIG}.bak.${BACKUP_SUFFIX}"
 fi
 
-# Restart SSH service (coba ssh, fallback ke sshd)
-if systemctl list-unit-files | grep -q "^ssh.service"; then
+# Nonaktifkan sshd_config.d override
+if [ -d "$SSHD_DIR" ]; then
+    echo "[*] Disabling $SSHD_DIR overrides..."
+    mkdir -p "${SSHD_DIR}.disabled"
+    mv "$SSHD_DIR"/*.conf "${SSHD_DIR}.disabled/" 2>/dev/null || true
+fi
+
+# Pastikan file ada
+touch "$SSHD_CONFIG"
+
+# Bersihkan directive lama
+sed -i '/^Port /d' "$SSHD_CONFIG"
+sed -i '/^PermitRootLogin /d' "$SSHD_CONFIG"
+sed -i '/^PasswordAuthentication /d' "$SSHD_CONFIG"
+sed -i '/^PubkeyAuthentication /d' "$SSHD_CONFIG"
+sed -i '/^KbdInteractiveAuthentication /d' "$SSHD_CONFIG"
+
+# Tambahkan konfigurasi FIX
+cat >> "$SSHD_CONFIG" <<EOF
+
+# === FORCE SSH SETTINGS ===
+Port 22
+PermitRootLogin yes
+PasswordAuthentication yes
+PubkeyAuthentication yes
+KbdInteractiveAuthentication no
+EOF
+
+# Pastikan subsystem sftp
+grep -q "^Subsystem\s\+sftp" "$SSHD_CONFIG" || \
+echo "Subsystem sftp /usr/lib/openssh/sftp-server" >> "$SSHD_CONFIG"
+
+# Restart SSH service
+echo "[*] Restarting SSH service..."
+if systemctl list-unit-files | grep -q '^ssh.service'; then
     systemctl enable --now ssh
-elif systemctl list-unit-files | grep -q "^sshd.service"; then
+elif systemctl list-unit-files | grep -q '^sshd.service'; then
     systemctl enable --now sshd
 else
-    echo "Service SSH tidak ditemukan, pastikan openssh-server terinstall dengan benar."
+    service ssh restart || service sshd restart
 fi
 
-echo "Konfigurasi sshd telah diperbarui dan service telah direstart."
+# Verifikasi konfigurasi AKTUAL
+echo
+echo "[*] Effective SSH config:"
+sshd -T | grep -iE 'port |permitrootlogin|passwordauthentication|pubkeyauthentication'
+
+echo
+echo "[✓] SSH configuration applied successfully"
