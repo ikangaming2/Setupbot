@@ -12,7 +12,7 @@ cat << 'EOF' > "$TARGET"
 #!/bin/bash
 # ==================================================
 # VPS Welcome Message
-# NAT VM by Nauval
+# NAT VM by Deline.Cloud
 # ==================================================
 
 GREEN='\033[0;32m'
@@ -43,7 +43,7 @@ DISK_PCT=$(df -h / | awk 'NR==2 {print $5}')
 
 clear
 echo -e "${CYAN}=================================================${NC}"
-echo -e "${YELLOW} 🚀 NAT VM by Nauval${NC}"
+echo -e "${YELLOW} 🚀 NAT VM by Deline.Cloud${NC}"
 echo -e "${CYAN}=================================================${NC}"
 
 echo -e "${GREEN}User        ${NC}: $USER"
