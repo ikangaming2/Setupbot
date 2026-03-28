@@ -46,12 +46,14 @@ sed -i '/^PermitRootLogin /d' "$SSHD_CONFIG"
 sed -i '/^PasswordAuthentication /d' "$SSHD_CONFIG"
 sed -i '/^PubkeyAuthentication /d' "$SSHD_CONFIG"
 sed -i '/^KbdInteractiveAuthentication /d' "$SSHD_CONFIG"
+sed -i '/^AddressFamily /d' "$SSHD_CONFIG"
 
 # Tambahkan konfigurasi FIX
 cat >> "$SSHD_CONFIG" <<EOF
 
 # === FORCE SSH SETTINGS ===
 Port 22
+AddressFamily inet
 PermitRootLogin yes
 PasswordAuthentication yes
 PubkeyAuthentication yes
@@ -75,7 +77,7 @@ fi
 # Verifikasi konfigurasi AKTUAL
 echo
 echo "[*] Effective SSH config:"
-sshd -T | grep -iE 'port |permitrootlogin|passwordauthentication|pubkeyauthentication'
+sshd -T | grep -iE 'port |permitrootlogin|passwordauthentication|pubkeyauthentication|addressfamily'
 
 echo
 echo "[✓] SSH configuration applied successfully"
