@@ -9,7 +9,7 @@ detect_iface() {
 }
 
 detect_public_ip() {
-  curl -s ifconfig.me
+  curl -s -4 ifconfig.me
 }
 
 log_action() {
